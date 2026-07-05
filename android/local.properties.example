@@ -1,0 +1,4 @@
+# Copiez ce fichier vers local.properties si vous compilez hors Android Studio.
+# Exemple Linux/macOS : sdk.dir=/Users/vous/Library/Android/sdk
+# Exemple Windows    : sdk.dir=C\\:\\Users\\vous\\AppData\\Local\\Android\\Sdk
+sdk.dir=/chemin/vers/Android/Sdk

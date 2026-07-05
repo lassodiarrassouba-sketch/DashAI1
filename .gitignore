@@ -1,0 +1,25 @@
+# Android
+.gradle/
+/local.properties
+/build/
+**/build/
+*.apk
+*.aab
+dashai-*-netlify.zip
+keystore.properties
+*.jks
+*.keystore
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+.agents/
+.codex/

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="DashAI">
+  <rect width="512" height="512" rx="112" fill="#0f172a"/>
+  <circle cx="386" cy="126" r="54" fill="#22c55e"/>
+  <path d="M125 352V160h75c61 0 106 38 106 96s-45 96-106 96h-75Zm62-53h13c32 0 48-16 48-43s-16-43-48-43h-13v86Z" fill="#f8fafc"/>
+  <path d="M317 352 384 162h63l-67 190h-63Z" fill="#38bdf8"/>
+</svg>

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0f172a">
+    <title>DashAI</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/icon-192.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">DA</div>
+          <div>
+            <h1>DashAI</h1>
+            <p class="subtitle">Assistant IA vocal, vision camera et images - version web installable</p>
+          </div>
+        </div>
+        <button class="button install-button" id="installButton" type="button">Installer</button>
+      </header>
+
+      <section class="settings" aria-label="Configuration">
+        <label class="field">
+          <span>Backend HTTPS</span>
+          <input id="endpointInput" type="url" inputmode="url" placeholder="https://dashai-backend.onrender.com/api/ask">
+        </label>
+        <button class="button" id="saveSettingsButton" type="button">Sauver</button>
+        <button class="button" id="testBackendButton" type="button">Tester</button>
+      </section>
+
+      <section class="chat-panel" aria-label="Conversation DashAI">
+        <div class="status-row">
+          <span id="statusText">Pret.</span>
+          <span class="status-pill" id="modeText">Web PWA</span>
+        </div>
+        <div class="messages" id="messages" aria-live="polite"></div>
+      </section>
+
+      <form class="composer" id="composer">
+        <button class="button icon" id="wakeButton" type="button" title="Ecouter la phrase dis Diasco">◇</button>
+        <button class="button icon" id="cameraButton" type="button" title="Prendre ou choisir une photo">▣</button>
+        <label class="field">
+          <span>Question</span>
+          <textarea id="questionInput" rows="1" placeholder="Pose ta question, demande une image ou decris une photo..."></textarea>
+        </label>
+        <button class="button primary" id="sendButton" type="submit">Envoyer</button>
+      </form>
+
+      <input class="hidden" id="photoInput" type="file" accept="image/*" capture="environment">
+    </main>
+
+    <script src="/config.js"></script>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: dashai-backend
+    runtime: python
+    rootDir: server
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.4-mini
+      - key: MAX_OUTPUT_TOKENS
+        value: "700"
+      - key: ALLOWED_ORIGINS
+        sync: false

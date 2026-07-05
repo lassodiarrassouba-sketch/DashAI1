@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192" role="img" aria-label="DashAI">
+  <rect width="192" height="192" rx="42" fill="#0f172a"/>
+  <circle cx="145" cy="47" r="20" fill="#22c55e"/>
+  <path d="M47 132V60h28c23 0 40 14 40 36s-17 36-40 36H47Zm23-20h5c12 0 18-6 18-16s-6-16-18-16h-5v32Z" fill="#f8fafc"/>
+  <path d="M119 132 144 61h24l-25 71h-24Z" fill="#38bdf8"/>
+</svg>
