@@ -39,12 +39,21 @@ Dans Render :
 1. New > Blueprint.
 2. Connecter le depot GitHub `dashai`.
 3. Render detecte `render.yaml`.
-4. Renseigner les variables secretes :
+4. Le service `dashai-backend` est force en plan gratuit avec `plan: free`.
+5. Renseigner les variables secretes :
 
 ```text
 OPENAI_API_KEY=sk-...
 ALLOWED_ORIGINS=https://votre-site.netlify.app
 ```
+
+Si Render affiche `A Blueprint file was found, but there was an issue`, verifie que la derniere version de `render.yaml` contient bien :
+
+```yaml
+plan: free
+```
+
+Puis clique sur `Retry`.
 
 Le service expose ensuite une URL du type :
 
