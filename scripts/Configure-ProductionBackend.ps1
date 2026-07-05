@@ -88,6 +88,9 @@ if ($BuildApk) {
     Push-Location $androidDir
     try {
         .\gradlew.bat :app:assembleRelease
+        if ($LASTEXITCODE -ne 0) {
+            throw "La build Gradle release a echoue."
+        }
     } finally {
         Pop-Location
     }

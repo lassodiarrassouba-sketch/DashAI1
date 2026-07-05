@@ -1,4 +1,6 @@
 window.DASHAI_CONFIG = {
-  defaultBackendUrl: "",
+  defaultBackendUrl: "https://dashai-backend-dabr.onrender.com/api/ask",
   defaultLocale: "fr-FR"
 };
+
+
