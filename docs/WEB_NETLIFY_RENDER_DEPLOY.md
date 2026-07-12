@@ -90,7 +90,7 @@ Il met a jour :
 
 - `android/keystore.properties`
 - `web/config.js`
-- `download-site/dashai-1.0.2.apk`
+- `download-site/dashai-1.0.3.apk`
 - `dashai-android-download-netlify.zip`
 
 ## 3. Deployer la PWA sur Netlify

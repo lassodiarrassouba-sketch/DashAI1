@@ -53,6 +53,8 @@ public final class MainActivity extends Activity {
     private static final String KEY_OWNER_PHRASE = "owner_phrase";
     private static final String KEY_VOICE_PROFILE = "voice_profile";
     private static final String KEY_PRIVACY_NOTICE_ACCEPTED = "privacy_notice_accepted";
+    private static final String FIXED_WAKE_PHRASE = "dis Diasco";
+    private static final String FIXED_WAKE_PHRASE_SPOKEN = "dis diasco";
     private static final int MAX_HISTORY_LINES = 18;
     private static final long AUDIO_ERROR_CHAT_COOLDOWN_MS = 15_000L;
     private static final long WAKE_RESTART_DELAY_MS = 2_500L;
@@ -105,9 +107,10 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
+        ensureProductionDefaults();
         buildUi();
         initTextToSpeech();
-        appendAssistant("Bonjour. Configure le backend IA, active le mode en ligne, puis pose une question. Je garde les clés API hors de l’application.");
+        appendAssistant("Bonjour. Je suis prêt. Pose une question ou dites « dis Diasco » si le réveil vocal est activé.");
         showPrivacyNoticeIfNeeded();
         if (wakeSwitch.isChecked()) {
             wakeSwitch.post(() -> enableWakeMode());
@@ -168,7 +171,7 @@ public final class MainActivity extends Activity {
         endpointInput.setSingleLine(true);
         endpointInput.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
         endpointInput.setHint("URL backend : https://ton-domaine.com/api/ask");
-        endpointInput.setText(preferences.getString(KEY_ENDPOINT, defaultBackendEndpoint()));
+        endpointInput.setText(developerBackendEndpoint());
         endpointInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
         endpointInput.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -182,7 +185,9 @@ public final class MainActivity extends Activity {
         endpointInput.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) saveSettings();
         });
-        root.addView(endpointInput, new LinearLayout.LayoutParams(-1, -2));
+        if (showDeveloperControls()) {
+            root.addView(endpointInput, new LinearLayout.LayoutParams(-1, -2));
+        }
 
         LinearLayout switches = new LinearLayout(this);
         switches.setOrientation(LinearLayout.HORIZONTAL);
@@ -191,15 +196,22 @@ public final class MainActivity extends Activity {
 
         onlineSwitch = new Switch(this);
         onlineSwitch.setText("Mode en ligne");
-        onlineSwitch.setChecked(preferences.getBoolean(KEY_ONLINE, false));
+        onlineSwitch.setChecked(isOnlineModeEnabled());
         onlineSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                if (isOnlineModeForced() && !isChecked) {
+                    onlineSwitch.setChecked(true);
+                    status("Mode en ligne activé automatiquement.");
+                    return;
+                }
                 saveSettings();
                 status(isChecked ? "Mode en ligne activé." : "Mode hors ligne activé.");
             }
         });
-        switches.addView(onlineSwitch, new LinearLayout.LayoutParams(0, -2, 1));
+        if (showDeveloperControls()) {
+            switches.addView(onlineSwitch, new LinearLayout.LayoutParams(0, -2, 1));
+        }
 
         testButton = new Button(this);
         testButton.setText("Tester");
@@ -209,7 +221,9 @@ public final class MainActivity extends Activity {
                 testBackend();
             }
         });
-        switches.addView(testButton, new LinearLayout.LayoutParams(-2, -2));
+        if (showDeveloperControls()) {
+            switches.addView(testButton, new LinearLayout.LayoutParams(-2, -2));
+        }
 
         clearButton = new Button(this);
         clearButton.setText("Effacer");
@@ -223,7 +237,7 @@ public final class MainActivity extends Activity {
         root.addView(switches, new LinearLayout.LayoutParams(-1, -2));
 
         wakeSwitch = new Switch(this);
-        wakeSwitch.setText("Réveil vocal : dis Diasco");
+        wakeSwitch.setText("Réveil vocal : " + FIXED_WAKE_PHRASE);
         wakeSwitch.setChecked(preferences.getBoolean(KEY_WAKE, false));
         wakeSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
@@ -241,7 +255,7 @@ public final class MainActivity extends Activity {
         ownerPhraseInput.setSingleLine(true);
         ownerPhraseInput.setInputType(InputType.TYPE_CLASS_TEXT);
         ownerPhraseInput.setHint("Phrase utilisateur");
-        ownerPhraseInput.setText(preferences.getString(KEY_OWNER_PHRASE, "c’est moi"));
+        ownerPhraseInput.setText(FIXED_WAKE_PHRASE_SPOKEN);
         ownerPhraseInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
         ownerPhraseInput.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -255,7 +269,9 @@ public final class MainActivity extends Activity {
         ownerPhraseInput.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) saveSettings();
         });
-        root.addView(ownerPhraseInput, new LinearLayout.LayoutParams(-1, -2));
+        if (showDeveloperControls()) {
+            root.addView(ownerPhraseInput, new LinearLayout.LayoutParams(-1, -2));
+        }
 
         enrollVoiceButton = new Button(this);
         enrollVoiceButton.setText(hasVoiceProfile() ? "Refaire empreinte voix" : "Enregistrer ma voix");
@@ -363,11 +379,18 @@ public final class MainActivity extends Activity {
         if (preferences.getBoolean(KEY_PRIVACY_NOTICE_ACCEPTED, false)) return;
         new AlertDialog.Builder(this)
                 .setTitle("Confidentialité")
-                .setMessage("DashAI peut envoyer vos questions et les photos que vous choisissez d’analyser vers le backend IA configuré afin de générer une réponse. L’empreinte vocale reste stockée sur cet appareil.")
+                .setMessage("DashAI peut envoyer vos questions et les photos que vous choisissez d’analyser vers son backend IA sécurisé afin de générer une réponse. L’empreinte vocale reste stockée sur cet appareil.")
                 .setPositiveButton("J’ai compris", (dialog, which) -> preferences.edit()
                         .putBoolean(KEY_PRIVACY_NOTICE_ACCEPTED, true)
                         .apply())
                 .show();
+    }
+
+    private void ensureProductionDefaults() {
+        preferences.edit()
+                .putBoolean(KEY_ONLINE, true)
+                .putString(KEY_OWNER_PHRASE, FIXED_WAKE_PHRASE_SPOKEN)
+                .apply();
     }
 
     private void askCurrentQuestion() {
@@ -393,7 +416,7 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        boolean onlineEnabled = onlineSwitch.isChecked();
+        boolean onlineEnabled = isOnlineModeEnabled();
         String endpoint = currentEndpoint();
         String historyForAi = buildHistoryForAi();
         String questionForAi = buildQuestionForAi(question, historyForAi);
@@ -428,9 +451,14 @@ public final class MainActivity extends Activity {
         if (clean.contains("mode en ligne") || clean.contains("active le mode en ligne") || clean.contains("activer le mode en ligne")) {
             onlineSwitch.setChecked(true);
             saveSettings();
-            return "Mode en ligne activé. Les questions générales passeront par le backend configuré.";
+            return "Mode en ligne activé automatiquement.";
         }
         if (clean.contains("mode hors ligne") || clean.contains("desactive le mode en ligne") || clean.contains("désactive le mode en ligne")) {
+            if (isOnlineModeForced()) {
+                onlineSwitch.setChecked(true);
+                saveSettings();
+                return "Le mode en ligne reste activé automatiquement pour DashAI.";
+            }
             onlineSwitch.setChecked(false);
             saveSettings();
             return "Mode hors ligne activé. Je répondrai seulement avec les capacités locales.";
@@ -458,8 +486,8 @@ public final class MainActivity extends Activity {
     }
 
     private void generateRequestedImage(String prompt) {
-        if (!onlineSwitch.isChecked()) {
-            appendAssistant("Active le mode en ligne pour générer et afficher une image.");
+        if (!isOnlineModeEnabled()) {
+            appendAssistant("Le mode en ligne doit être actif pour générer et afficher une image.");
             statusReady();
             return;
         }
@@ -555,8 +583,8 @@ public final class MainActivity extends Activity {
 
     private void startCameraDescription() {
         if (busy || voiceListening) return;
-        if (!onlineSwitch.isChecked()) {
-            appendAssistant("Active le mode en ligne pour décrire ce que voit la caméra.");
+        if (!isOnlineModeEnabled()) {
+            appendAssistant("Le mode en ligne doit être actif pour décrire ce que voit la caméra.");
             statusReady();
             return;
         }
@@ -937,9 +965,7 @@ public final class MainActivity extends Activity {
                     acknowledgeOwnerAndListen();
                     return;
                 }
-                String phrase = ownerPhraseInput.getText().toString().trim();
-                if (phrase.isEmpty()) phrase = "votre phrase utilisateur";
-                String answer = "Je vérifie votre voix. Répétez maintenant : " + phrase + ".";
+                String answer = "Je vérifie votre voix. Répétez maintenant : " + FIXED_WAKE_PHRASE + ".";
                 appendAssistant(answer);
                 status("Réveil vocal : identification utilisateur…");
                 speakThen(answer, () -> startOwnerVoiceCheckSoon(350));
@@ -987,7 +1013,7 @@ public final class MainActivity extends Activity {
     }
 
     private String cleanOwnerPhrase() {
-        return TextUtils.normalizeForIntent(ownerPhraseInput.getText().toString());
+        return TextUtils.normalizeForIntent(FIXED_WAKE_PHRASE_SPOKEN);
     }
 
     private boolean hasVoiceProfile() {
@@ -1019,13 +1045,7 @@ public final class MainActivity extends Activity {
         clearOwnerVoiceTrust();
         stopSpeechRecognizer();
         saveSettings();
-        String phrase = ownerPhraseInput.getText().toString().trim();
-        if (phrase.isEmpty()) {
-            phrase = "c’est moi";
-            ownerPhraseInput.setText(phrase);
-            saveSettings();
-        }
-
+        String phrase = FIXED_WAKE_PHRASE;
         appendAssistant("Enregistrement voix : dites clairement « " + phrase + " » quand je vous le demande.");
         status("Empreinte voix : préparez-vous…");
         setBusy(true);
@@ -1157,14 +1177,14 @@ public final class MainActivity extends Activity {
     }
 
     private String messageForListeningMode(int mode) {
-        if (mode == VOICE_MODE_WAKE_LISTENING) return "Réveil vocal : surveillance active. Dites « dis Diasco ».";
-        if (mode == VOICE_MODE_OWNER_CHECK) return "Réveil vocal : phrase utilisateur…";
+        if (mode == VOICE_MODE_WAKE_LISTENING) return "Réveil vocal : surveillance active. Dites « " + FIXED_WAKE_PHRASE + " ».";
+        if (mode == VOICE_MODE_OWNER_CHECK) return "Réveil vocal : répétez « " + FIXED_WAKE_PHRASE + " ».";
         if (mode == VOICE_MODE_WAKE_QUESTION) return "Réveil vocal : je vous écoute…";
         return "Micro : écoute longue, pose ta question…";
     }
 
     private String idleMessageForMode(int mode) {
-        if (mode == VOICE_MODE_WAKE_LISTENING) return "Réveil vocal : surveillance active. Dites « dis Diasco ».";
+        if (mode == VOICE_MODE_WAKE_LISTENING) return "Réveil vocal : surveillance active. Dites « " + FIXED_WAKE_PHRASE + " ».";
         if (mode == VOICE_MODE_WAKE_QUESTION) return "Réveil vocal : en attente.";
         if (mode == VOICE_MODE_OWNER_CHECK) return "Réveil vocal : identification en attente.";
         return "Micro : prêt.";
@@ -1341,6 +1361,9 @@ public final class MainActivity extends Activity {
     }
 
     private String currentEndpoint() {
+        if (!showDeveloperControls()) {
+            return fixCommonEndpointTypo(defaultBackendEndpoint());
+        }
         String endpoint = endpointInput.getText().toString().trim();
         String fixed = fixCommonEndpointTypo(endpoint);
         if (!fixed.equals(endpoint)) {
@@ -1366,13 +1389,33 @@ public final class MainActivity extends Activity {
         return getString(R.string.default_backend_endpoint).trim();
     }
 
+    private String developerBackendEndpoint() {
+        return preferences.getString(KEY_ENDPOINT, defaultBackendEndpoint());
+    }
+
+    private boolean showDeveloperControls() {
+        return isDebugBuild();
+    }
+
+    private boolean isOnlineModeForced() {
+        return !showDeveloperControls();
+    }
+
+    private boolean isOnlineModeEnabled() {
+        return isOnlineModeForced() || onlineSwitch == null || onlineSwitch.isChecked();
+    }
+
     private void saveSettings() {
-        preferences.edit()
-                .putString(KEY_ENDPOINT, currentEndpoint())
-                .putString(KEY_OWNER_PHRASE, ownerPhraseInput == null ? "" : ownerPhraseInput.getText().toString().trim())
-                .putBoolean(KEY_ONLINE, onlineSwitch.isChecked())
-                .putBoolean(KEY_WAKE, wakeSwitch != null && wakeSwitch.isChecked())
-                .apply();
+        SharedPreferences.Editor editor = preferences.edit()
+                .putString(KEY_OWNER_PHRASE, FIXED_WAKE_PHRASE_SPOKEN)
+                .putBoolean(KEY_ONLINE, isOnlineModeEnabled())
+                .putBoolean(KEY_WAKE, wakeSwitch != null && wakeSwitch.isChecked());
+        if (showDeveloperControls()) {
+            editor.putString(KEY_ENDPOINT, currentEndpoint());
+        } else {
+            editor.remove(KEY_ENDPOINT);
+        }
+        editor.apply();
     }
 
     private void setBusy(boolean busy) {
@@ -1397,7 +1440,7 @@ public final class MainActivity extends Activity {
         endpointInput.setEnabled(!busy);
         ownerPhraseInput.setEnabled(!busy && !voiceListening);
         questionInput.setEnabled(!busy);
-        onlineSwitch.setEnabled(!busy);
+        onlineSwitch.setEnabled(!busy && !isOnlineModeForced());
         wakeSwitch.setEnabled(!busy);
         if (wakeModeEnabled || wakeSwitch.isChecked()) {
             micButton.setText("Réveil");

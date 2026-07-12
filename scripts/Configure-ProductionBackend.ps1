@@ -70,7 +70,7 @@ $keystoreProperties = Join-Path $projectRoot "android\keystore.properties"
 $webConfig = Join-Path $projectRoot "web\config.js"
 $androidDir = Join-Path $projectRoot "android"
 $releaseApk = Join-Path $androidDir "app\build\outputs\apk\release\app-release.apk"
-$downloadApk = Join-Path $projectRoot "download-site\dashai-1.0.2.apk"
+$downloadApk = Join-Path $projectRoot "download-site\dashai-1.0.3.apk"
 $downloadZip = Join-Path $projectRoot "dashai-android-download-netlify.zip"
 
 Set-PropertyValue -Path $keystoreProperties -Key "DASHAI_PROD_API_ENDPOINT" -Value $endpoint
@@ -99,6 +99,8 @@ if ($BuildApk) {
         throw "APK release introuvable apres build : $releaseApk"
     }
 
+    Get-ChildItem -LiteralPath (Join-Path $projectRoot "download-site") -Filter "dashai-*.apk" |
+        Remove-Item -Force
     Copy-Item -LiteralPath $releaseApk -Destination $downloadApk -Force
     Compress-Archive -Path (Join-Path $projectRoot "download-site\*") -DestinationPath $downloadZip -Force
     Write-Output "APK mise a jour : $downloadApk"
