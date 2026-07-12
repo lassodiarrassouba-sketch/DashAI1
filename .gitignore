@@ -6,6 +6,7 @@ local.properties
 /build/
 **/build/
 *.apk
+!download-site/dashai-*.apk
 *.aab
 dashai-*-netlify.zip
 keystore.properties
