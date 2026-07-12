@@ -2,24 +2,27 @@
 
 Ce dossier est la passation technique du progiciel Excel VBA **PLP Analyse Régionale**, marque **Prince Lass Progiciel**.
 
+## Démarrage dans Codex
+
+1. Ouvrir le dépôt `lassodiarrassouba-sketch/DashAI1`.
+2. Choisir la branche `codex/plp-analyse-regionale`.
+3. Ouvrir le dossier `plp-analyse-regionale/`.
+4. Ajouter dans l’espace de travail Codex le paquet local `PLP_Analyse_Regionale_Codex_Sanitise.zip` fourni dans la conversation.
+5. Lire `AGENTS.md`, puis ce fichier.
+
+Le dépôt est public : les classeurs binaires `.xlsm` ne sont pas publiés directement dans la branche. Le paquet local contient les versions v2.5 et v2.6, le VBA extrait, les captures d’erreur et le jeu CSV anonymisé, sans la liste réelle de 2 552 personnes.
+
 ## Tâche prioritaire
 
 Corriger définitivement les macros **ExporterPDF** et **ImprimerStatistiques**. Les versions v2.5 et v2.6 échouent toujours dans Excel Windows sur le PC utilisateur. Les autres fonctions principales fonctionnent suffisamment pour traiter 2 552 personnes.
 
-## Fichiers de départ
+## Fichiers de départ du paquet
 
-Les classeurs sont stockés sous forme Base64 dans `workbooks/` afin de pouvoir être versionnés comme texte. Depuis la racine du projet :
-
-```bash
-python tools/decode_workbooks.py
-```
-
-Cela crée les deux fichiers `.xlsm` :
-
-- `workbooks/decoded/PLP_Analyse_Regionale_v2_5_Statistiques_Stables.xlsm`
-- `workbooks/decoded/PLP_Analyse_Regionale_v2_6_PDF_Impression_Stabilises.xlsm`
-
-La v2.5 est la base de référence stable pour import/statistiques. La v2.6 est la dernière tentative PDF/impression, toujours en échec sur le poste réel.
+- `workbooks/reference/PLP_Analyse_Regionale_v2_5_Statistiques_Stables.xlsm` : base de référence stable pour import/statistiques ;
+- `workbooks/current/PLP_Analyse_Regionale_v2_6_PDF_Impression_Stabilises.xlsm` : dernière tentative PDF/impression, toujours en échec ;
+- `src/vba/v2_5/` et `src/vba/v2_6/` : modules VBA déjà extraits ;
+- `screenshots/08_erreur_export_pdf.jpeg` et `screenshots/09_erreur_impression.jpeg` : erreurs observées ;
+- `data/sanitized/111_anonymise.csv` : jeu structuré anonymisé.
 
 ## Objectif fonctionnel
 
@@ -55,13 +58,6 @@ Modules VBA :
 - `Sheet1.cls` : module de feuille minimal ;
 - `Module1.bas` : logique métier, import, collage, couleurs, statistiques, PDF, impression et export Excel.
 
-Pour extraire le VBA :
-
-```bash
-python tools/extract_vba.py workbooks/decoded/PLP_Analyse_Regionale_v2_5_Statistiques_Stables.xlsm src/v2_5
-python tools/extract_vba.py workbooks/decoded/PLP_Analyse_Regionale_v2_6_PDF_Impression_Stabilises.xlsm src/v2_6
-```
-
 ## Bug actuel
 
 Sur le PC Windows de l’utilisateur :
@@ -88,7 +84,7 @@ Créer une feuille dédiée, par exemple `Rapport_Impression`, puis :
 9. diagnostiquer `Application.ActivePrinter` et signaler clairement l’absence d’imprimante ;
 10. ne jamais masquer l’erreur par un gestionnaire vide.
 
-Ajouter de préférence deux macros testables sans boîte de dialogue, par exemple :
+Ajouter de préférence deux macros testables sans boîte de dialogue :
 
 ```vb
 Public Function ExporterRapportPDFVers(ByVal chemin As String) As Boolean
@@ -99,7 +95,7 @@ Les boutons peuvent ensuite appeler ces fonctions. Cela permet un test COM autom
 
 ## Critères d’acceptation
 
-- Le CSV `samples/liste_anonymisee.csv` est réparti en huit colonnes.
+- Le CSV anonymisé est réparti en huit colonnes.
 - `12,00` donne **Admis** ; `11,90` donne **Échec**.
 - Les cinq régions et leurs pourcentages apparaissent sur le graphique.
 - PDF : le fichier est réellement créé, lisible, avec titre, tableau et graphique.
