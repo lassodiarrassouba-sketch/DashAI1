@@ -40,6 +40,12 @@ body {
   align-items: center;
 }
 
+.brand img {
+  border-radius: 8px;
+  object-fit: cover;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+}
+
 h1,
 h2,
 p {
