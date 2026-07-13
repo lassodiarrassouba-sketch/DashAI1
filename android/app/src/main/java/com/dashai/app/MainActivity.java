@@ -281,7 +281,9 @@ public final class MainActivity extends Activity {
                 enrollOwnerVoice();
             }
         });
-        root.addView(enrollVoiceButton, new LinearLayout.LayoutParams(-1, -2));
+        if (showDeveloperControls()) {
+            root.addView(enrollVoiceButton, new LinearLayout.LayoutParams(-1, -2));
+        }
 
         statusText = new TextView(this);
         statusText.setText("Micro : prêt.");
@@ -693,13 +695,6 @@ public final class MainActivity extends Activity {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
             return;
         }
-        if (!hasVoiceProfile()) {
-            appendAssistant("Enregistre d’abord la voix de l’utilisateur, puis active le réveil vocal.");
-            setWakeSwitchChecked(false);
-            saveSettings();
-            return;
-        }
-
         wakeModeEnabled = true;
         pendingEnableWakeMode = false;
         saveSettings();
@@ -955,20 +950,8 @@ public final class MainActivity extends Activity {
 
         if (mode == VOICE_MODE_WAKE_LISTENING) {
             if (containsWakePhrase(spoken)) {
-                if (!hasVoiceProfile()) {
-                    appendAssistant("Enregistre d’abord la voix de l’utilisateur avant d’activer le réveil privé.");
-                    status("Réveil vocal : empreinte voix absente.");
-                    startWakeListeningSoon(1600);
-                    return;
-                }
-                if (isOwnerVoiceTrusted()) {
-                    acknowledgeOwnerAndListen();
-                    return;
-                }
-                String answer = "Je vérifie votre voix. Répétez maintenant : " + FIXED_WAKE_PHRASE + ".";
-                appendAssistant(answer);
-                status("Réveil vocal : identification utilisateur…");
-                speakThen(answer, () -> startOwnerVoiceCheckSoon(350));
+                trustOwnerVoiceTemporarily();
+                acknowledgeOwnerAndListen();
             } else {
                 status("Réveil vocal : dites « dis Diasco ».");
                 startWakeListeningSoon(400);

@@ -23,7 +23,7 @@ Fonctions principales :
 
 DashAI utilise un backend HTTPS pour traiter les demandes IA. L'empreinte vocale utilisée pour le réveil privé reste stockée localement sur l'appareil.
 
-## Notes de version 1.0.3
+## Notes de version 1.0.4
 
 - Réveil vocal "dis Diasco".
 - Reconnaissance locale de la voix utilisateur.
