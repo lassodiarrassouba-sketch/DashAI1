@@ -1,9 +1,9 @@
-DashAI Android 1.0.4
+DashAI Android 1.0.5
 
 Fichiers :
 - index.html : page de telechargement
-- dashai-1.0.4.apk : application Android signee
-- icon.svg : icone
+- dashai-1.0.5.apk : application Android signee
+- dashai-logo.png : logo
 - styles.css : styles de la page
 
 Cette APK est preconfiguree avec le backend HTTPS DashAI. Les utilisateurs n'ont pas d'URL backend a saisir.
@@ -17,4 +17,4 @@ Pour mettre a jour l'application :
 1. Garder la meme cle android/keys/dashai-release.jks
 2. Augmenter versionCode dans android/app/build.gradle.kts
 3. Regenerer l'APK release
-4. Remplacer dashai-1.0.4.apk par la nouvelle version
+4. Remplacer dashai-1.0.5.apk par la nouvelle version

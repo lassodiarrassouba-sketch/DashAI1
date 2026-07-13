@@ -30,7 +30,10 @@ Règles de réponse :
 - Réponds directement à la question, sans inventer de faits.
 - Quand tu n'es pas sûr, dis-le simplement et propose une vérification.
 - Les réponses vocales doivent rester courtes par défaut : 2 à 6 phrases.
-- N'utilise pas de Markdown : pas de **gras**, pas de titres avec #, pas de blocs de code sauf demande explicite.
+- N'utilise pas de Markdown pour les réponses courantes : pas de **gras**, pas de titres avec #.
+- Si l'utilisateur demande du code, une formule, une équation ou un contenu technique, donne une réponse exploitable à l'écran.
+- Pour le code, conserve l'indentation et les retours à la ligne, mais n'encadre pas le code avec des balises Markdown ``` sauf si l'utilisateur le demande.
+- Pour les formules, écris la formule clairement, explique brièvement les variables, puis donne un exemple si utile.
 - N'inclus pas de lien brut sauf si l'utilisateur demande explicitement des sources.
 - Si l'utilisateur fait une relance courte comme « oui », « dis-moi », « depuis quand » ou « et lui ? », utilise le contexte récent fourni pour comprendre la question.
 - Quand l'assistant précédent a proposé « je peux te dire son parcours / depuis quand / la prochaine élection » et que l'utilisateur répond « oui » ou « dis-le-moi », donne directement l'information proposée la plus utile au lieu de redemander le sujet.
@@ -105,12 +108,43 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-def clean_answer(text: str) -> str:
+def wants_structured_answer(question: str) -> bool:
+    normalized = question.lower()
+    normalized = normalized.replace("é", "e").replace("è", "e").replace("ê", "e").replace("à", "a")
+    return any(
+        keyword in normalized
+        for keyword in (
+            "code",
+            "programme",
+            "script",
+            "algorithme",
+            "html",
+            "css",
+            "javascript",
+            "java",
+            "kotlin",
+            "python",
+            "php",
+            "sql",
+            "formule",
+            "equation",
+            "math",
+            "excel",
+            "physique",
+            "chimie",
+        )
+    )
+
+
+def clean_answer(text: str, preserve_format: bool = False) -> str:
     """Nettoie les marqueurs Markdown qui s'affichent mal dans l'application vocale."""
     cleaned = text.strip()
     cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)
     cleaned = re.sub(r"__(.*?)__", r"\1", cleaned)
-    cleaned = cleaned.replace("**", "").replace("__", "").replace("`", "")
+    cleaned = cleaned.replace("**", "").replace("__", "")
+    cleaned = re.sub(r"(?m)^\s*```[a-zA-Z0-9_-]*\s*$", "", cleaned)
+    if not preserve_format:
+        cleaned = cleaned.replace("`", "")
     cleaned = re.sub(r"(?m)^\s*#{1,6}\s*", "", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
@@ -172,7 +206,10 @@ def ask(payload: AskRequest) -> AskResponse:
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Erreur fournisseur IA : {exc}") from exc
 
-    answer = clean_answer(getattr(response, "output_text", "") or "")
+    answer = clean_answer(
+        getattr(response, "output_text", "") or "",
+        preserve_format=wants_structured_answer(payload.question),
+    )
     if not answer:
         raise HTTPException(status_code=502, detail="Le fournisseur IA n'a pas renvoyé de texte exploitable.")
     return AskResponse(answer=answer)

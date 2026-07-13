@@ -10,7 +10,7 @@ Ce document décrit le chemin de publication Android pour DashAI. La publication
 - `targetSdk = 36`
 - `minSdk = 23`
 - `applicationId = com.dashai.app`
-- Version Play prête : `versionCode = 104`, `versionName = 1.0.4`
+- Version Play prête : `versionCode = 105`, `versionName = 1.0.5`
 - HTTP local autorisé uniquement en debug.
 - Release : cleartext HTTP désactivé.
 - Clés API : uniquement côté serveur, jamais dans l'APK.

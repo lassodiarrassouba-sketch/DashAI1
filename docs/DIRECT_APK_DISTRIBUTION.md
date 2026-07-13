@@ -5,7 +5,7 @@ Cette option permet de rendre DashAI telechargeable sans Play Store. Les utilisa
 ## Fichiers produits
 
 - APK signee : `android/app/build/outputs/apk/release/app-release.apk`
-- Copie publique : `download-site/dashai-1.0.4.apk`
+- Copie publique : `download-site/dashai-1.0.5.apk`
 - Site de telechargement : `download-site/`
 - Archive Netlify Drop : `dashai-android-download-netlify.zip`
 
@@ -20,7 +20,7 @@ Cette option permet de rendre DashAI telechargeable sans Play Store. Les utilisa
 
 1. Creer un depot GitHub.
 2. Aller dans `Releases`.
-3. Creer une release `DashAI 1.0.4`.
+3. Creer une release `DashAI 1.0.5`.
 4. Ajouter le fichier `android/app/build/outputs/apk/release/app-release.apk`.
 5. Publier la release et partager le lien.
 

@@ -421,6 +421,7 @@ public final class MainActivity extends Activity {
         boolean onlineEnabled = isOnlineModeEnabled();
         String endpoint = currentEndpoint();
         String historyForAi = buildHistoryForAi();
+        boolean technicalRequest = isTechnicalRequest(question);
         String questionForAi = buildQuestionForAi(question, historyForAi);
         boolean forceRemote = looksLikeFollowUp(question) && !historyForAi.isEmpty();
 
@@ -441,9 +442,9 @@ public final class MainActivity extends Activity {
                 setBusy(false);
                 statusReady();
                 String cleanAnswer = cleanAssistantText(answer);
-                appendAssistant(cleanAnswer);
+                appendAssistant(cleanAnswer, technicalRequest || looksLikeTechnicalContent(cleanAnswer));
                 rememberTurn(question, cleanAnswer);
-                speakAndResumeWake(cleanAnswer);
+                speakAndResumeWake(speechSummaryForAnswer(question, cleanAnswer));
             });
         });
     }
@@ -474,17 +475,50 @@ public final class MainActivity extends Activity {
         boolean asksForVisual = clean.contains("image")
                 || clean.contains("photo")
                 || clean.contains("dessin")
-                || clean.contains("illustration");
+                || clean.contains("illustration")
+                || clean.contains("logo")
+                || clean.contains("avatar")
+                || clean.contains("poster")
+                || clean.contains("banniere");
         boolean startsLikeCommand = clean.startsWith("affiche")
                 || clean.startsWith("montre")
                 || clean.startsWith("genere")
                 || clean.startsWith("cree")
                 || clean.startsWith("dessine")
                 || clean.startsWith("fais")
+                || clean.startsWith("fait")
                 || clean.startsWith("produis")
                 || clean.startsWith("image de")
                 || clean.startsWith("une image de");
         return asksForVisual && startsLikeCommand;
+    }
+
+    private boolean isTechnicalRequest(String question) {
+        String clean = TextUtils.normalizeForIntent(question);
+        if (clean.isEmpty()) return false;
+        return clean.contains("code")
+                || clean.contains("programme")
+                || clean.contains("script")
+                || clean.contains("algorithme")
+                || clean.contains("html")
+                || clean.contains("css")
+                || clean.contains("javascript")
+                || clean.contains("java")
+                || clean.contains("kotlin")
+                || clean.contains("python")
+                || clean.contains("php")
+                || clean.contains("sql")
+                || clean.contains("formule")
+                || clean.contains("equation")
+                || clean.contains("math")
+                || clean.contains("excel")
+                || clean.contains("physique")
+                || clean.contains("chimie")
+                || clean.startsWith("calcule")
+                || clean.startsWith("resous")
+                || clean.startsWith("ecris une fonction")
+                || clean.startsWith("ecris un programme")
+                || clean.startsWith("corrige ce code");
     }
 
     private void generateRequestedImage(String prompt) {
@@ -551,13 +585,23 @@ public final class MainActivity extends Activity {
     }
 
     private String buildQuestionForAi(String question, String historyForAi) {
-        if (!looksLikeFollowUp(question) || historyForAi == null || historyForAi.trim().isEmpty()) {
-            return question;
+        String questionForAi = question;
+        if (looksLikeFollowUp(question) && historyForAi != null && !historyForAi.trim().isEmpty()) {
+            questionForAi = "L'utilisateur fait une relance courte qui dépend du contexte. "
+                    + "Utilise le contexte récent ci-dessous pour répondre directement, sans demander de préciser si le contexte suffit.\n\n"
+                    + "Contexte récent :\n" + historyForAi.trim() + "\n\n"
+                    + "Relance actuelle de l'utilisateur : " + question;
         }
-        return "L'utilisateur fait une relance courte qui dépend du contexte. "
-                + "Utilise le contexte récent ci-dessous pour répondre directement, sans demander de préciser si le contexte suffit.\n\n"
-                + "Contexte récent :\n" + historyForAi.trim() + "\n\n"
-                + "Relance actuelle de l'utilisateur : " + question;
+
+        if (!isTechnicalRequest(question)) {
+            return questionForAi;
+        }
+
+        return questionForAi + "\n\n"
+                + "Instruction d'affichage DashAI : la demande concerne du code, une formule ou un contenu technique. "
+                + "Réponds de façon précise et exploitable à l'écran. "
+                + "Pour le code, conserve l'indentation et les retours à la ligne, mais n'encadre pas le code avec des balises Markdown ```."
+                + "Pour les formules, écris la formule clairement sur une ligne séparée, puis explique les variables brièvement.";
     }
 
     private void testBackend() {
@@ -1227,7 +1271,12 @@ public final class MainActivity extends Activity {
     }
 
     private void appendAssistant(String text) {
-        append("DashAI", cleanAssistantText(text));
+        String clean = cleanAssistantText(text);
+        append("DashAI", clean, looksLikeTechnicalContent(clean));
+    }
+
+    private void appendAssistant(String text, boolean technical) {
+        append("DashAI", cleanAssistantText(text), technical);
     }
 
     private void appendAudioErrorOnce(String text) {
@@ -1245,12 +1294,16 @@ public final class MainActivity extends Activity {
 
     private String cleanAssistantText(String text) {
         if (text == null) return "";
-        return text
+        String cleaned = text
                 .replace("**", "")
                 .replace("__", "")
-                .replace("`", "")
+                .replaceAll("(?m)^\\s*```[a-zA-Z0-9_-]*\\s*$", "")
                 .replaceAll("(?m)^\\s*#{1,6}\\s*", "")
                 .trim();
+        if (!looksLikeTechnicalContent(cleaned)) {
+            cleaned = cleaned.replace("`", "");
+        }
+        return cleaned.trim();
     }
 
     private void rememberTurn(String userQuestion, String assistantAnswer) {
@@ -1271,16 +1324,69 @@ public final class MainActivity extends Activity {
     }
 
     private void append(String author, String text) {
+        append(author, text, false);
+    }
+
+    private void append(String author, String text, boolean technical) {
         TextView messageView = new TextView(this);
         messageView.setText(author + " : " + text);
-        messageView.setTextSize(16);
+        messageView.setTextSize(technical ? 14 : 16);
         messageView.setTextColor(0xFF111827);
+        messageView.setTextIsSelectable(true);
+        if (technical) {
+            messageView.setTypeface(Typeface.MONOSPACE);
+            messageView.setBackgroundColor(0xFFF1F5F9);
+            messageView.setPadding(dp(8), dp(8), dp(8), dp(8));
+        }
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         if (chatContainer.getChildCount() > 0) {
             params.topMargin = dp(10);
         }
         chatContainer.addView(messageView, params);
         scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+    }
+
+    private boolean looksLikeTechnicalContent(String text) {
+        if (text == null) return false;
+        String clean = text.trim();
+        if (clean.isEmpty()) return false;
+        String lower = clean.toLowerCase(Locale.ROOT);
+        return clean.contains("{")
+                || clean.contains("}")
+                || clean.contains("=>")
+                || clean.contains("</")
+                || lower.contains("function ")
+                || lower.contains("class ")
+                || lower.contains("def ")
+                || lower.contains("import ")
+                || lower.contains("select ")
+                || lower.contains("const ")
+                || lower.contains("let ")
+                || lower.contains("var ")
+                || lower.contains("public static")
+                || lower.contains("formule")
+                || lower.contains("equation")
+                || lower.contains("équation")
+                || clean.matches("(?s).*\\n\\s*[a-zA-Z_][a-zA-Z0-9_]*\\s*=\\s*.+")
+                || clean.matches("(?s).*\\n\\s*[-+*/=()^√Σ].*");
+    }
+
+    private String speechSummaryForAnswer(String question, String answer) {
+        if (isTechnicalRequest(question) || looksLikeTechnicalContent(answer)) {
+            if (answer != null && answer.length() < 160 && !answer.contains("\n")) {
+                return answer;
+            }
+            if (TextUtils.normalizeForIntent(question).contains("formule")) {
+                return "J’ai affiché la formule à l’écran avec l’explication.";
+            }
+            if (TextUtils.normalizeForIntent(question).contains("code")
+                    || TextUtils.normalizeForIntent(question).contains("programme")
+                    || TextUtils.normalizeForIntent(question).contains("script")) {
+                return "J’ai affiché le code à l’écran.";
+            }
+            return "J’ai affiché la réponse technique à l’écran.";
+        }
+        return answer;
     }
 
     private void appendImage(String imageBase64, String mimeType) {
