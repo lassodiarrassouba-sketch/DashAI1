@@ -6,6 +6,8 @@ Fichiers :
 - icon.svg : icone
 - styles.css : styles de la page
 
+Cette APK est preconfiguree avec le backend HTTPS DashAI. Les utilisateurs n'ont pas d'URL backend a saisir.
+
 Pour publier sans Play Store :
 1. Ouvrir https://app.netlify.com/drop
 2. Deposer ce dossier ou l'archive dashai-android-download-netlify.zip
