@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "DashAIRebuilt"
+rootProject.name = "DIASCO"
 include(":app")

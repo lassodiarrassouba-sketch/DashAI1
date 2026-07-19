@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#0f172a">
-    <title>DashAI</title>
+    <meta name="theme-color" content="#008f72">
+    <title>DIASCO</title>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon-192.png" type="image/png">
     <link rel="stylesheet" href="/styles.css">
@@ -15,14 +15,14 @@
         <div class="brand">
           <img class="logo image-logo" src="/icons/icon-192.png" alt="">
           <div>
-            <h1>DashAI</h1>
-            <p class="subtitle">Assistant IA vocal, vision camera et images - version web installable</p>
+            <h1>DIASCO</h1>
+            <p class="subtitle">Assistant vocal, visuel et créatif</p>
           </div>
         </div>
         <button class="button install-button" id="installButton" type="button">Installer</button>
       </header>
 
-      <section class="settings" aria-label="Configuration">
+      <section class="settings hidden" aria-label="Configuration technique">
         <label class="field">
           <span>Backend HTTPS</span>
           <input id="endpointInput" type="url" inputmode="url" placeholder="https://dashai-backend.onrender.com/api/ask">
@@ -31,7 +31,7 @@
         <button class="button" id="testBackendButton" type="button">Tester</button>
       </section>
 
-      <section class="chat-panel" aria-label="Conversation DashAI">
+      <section class="chat-panel" aria-label="Conversation DIASCO">
         <div class="status-row">
           <span id="statusText">Pret.</span>
           <span class="status-pill" id="modeText">Web PWA</span>
@@ -44,7 +44,7 @@
         <button class="button icon" id="cameraButton" type="button" title="Prendre ou choisir une photo">▣</button>
         <label class="field">
           <span>Question</span>
-          <textarea id="questionInput" rows="1" placeholder="Pose ta question, demande une image ou decris une photo..."></textarea>
+          <textarea id="questionInput" rows="1" placeholder="Écrivez à DIASCO…"></textarea>
         </label>
         <button class="button primary" id="sendButton" type="submit">Envoyer</button>
       </form>

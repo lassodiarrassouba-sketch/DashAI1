@@ -34,6 +34,22 @@ public final class RemoteAiClient {
         }
     }
 
+    public static final class SiteResult {
+        public final String message;
+        public final String title;
+        public final String html;
+
+        private SiteResult(String message, String title, String html) {
+            this.message = message;
+            this.title = title;
+            this.html = html;
+        }
+
+        public boolean hasSite() {
+            return html != null && !html.trim().isEmpty();
+        }
+    }
+
     private static final class PostResult {
         final int code;
         final String raw;
@@ -59,7 +75,7 @@ public final class RemoteAiClient {
             JSONObject body = new JSONObject();
             body.put("question", question);
             body.put("locale", localeTag == null || localeTag.isEmpty() ? "fr-FR" : localeTag);
-            body.put("client", "dashai-android");
+            body.put("client", "diasco-android");
             if (history != null && !history.trim().isEmpty()) {
                 body.put("history", history.trim());
             }
@@ -92,7 +108,7 @@ public final class RemoteAiClient {
                     ? "Décris clairement ce que tu vois avec la caméra."
                     : prompt.trim());
             body.put("locale", localeTag == null || localeTag.isEmpty() ? "fr-FR" : localeTag);
-            body.put("client", "dashai-android");
+            body.put("client", "diasco-android");
             if (history != null && !history.trim().isEmpty()) {
                 body.put("history", history.trim());
             }
@@ -114,14 +130,14 @@ public final class RemoteAiClient {
             JSONObject body = new JSONObject();
             body.put("prompt", cleanPrompt);
             body.put("locale", localeTag == null || localeTag.isEmpty() ? "fr-FR" : localeTag);
-            body.put("client", "dashai-android");
+            body.put("client", "diasco-android");
 
             PostResult result = postJson(imageEndpoint, body, allowHttp);
             if (result.error != null) {
                 return new ImageResult(result.error, null, null);
             }
             if (result.code < 200 || result.code >= 300) {
-                return new ImageResult("Erreur backend " + result.code + " : " + parseError(result.raw), null, null);
+                return new ImageResult(formatBackendError(result.code, result.raw), null, null);
             }
 
             JSONObject root = new JSONObject(result.raw);
@@ -137,11 +153,52 @@ public final class RemoteAiClient {
         }
     }
 
+    public SiteResult generateWebsite(
+            String askEndpoint,
+            String prompt,
+            String localeTag,
+            String history,
+            boolean allowHttp
+    ) {
+        String siteEndpoint = buildSiblingEndpoint(askEndpoint, "/api/site");
+        String cleanPrompt = prompt == null ? "" : prompt.trim();
+        if (cleanPrompt.isEmpty()) {
+            return new SiteResult("Décris le site à créer.", null, null);
+        }
+
+        try {
+            JSONObject body = new JSONObject();
+            body.put("prompt", cleanPrompt);
+            body.put("locale", localeTag == null || localeTag.isEmpty() ? "fr-FR" : localeTag);
+            body.put("client", "diasco-android");
+            if (history != null && !history.trim().isEmpty()) body.put("history", history.trim());
+
+            PostResult result = postJson(siteEndpoint, body, allowHttp);
+            if (result.error != null) {
+                return new SiteResult(result.error, null, null);
+            }
+            if (result.code < 200 || result.code >= 300) {
+                return new SiteResult(formatBackendError(result.code, result.raw), null, null);
+            }
+
+            JSONObject root = new JSONObject(result.raw);
+            String answer = root.optString("answer", "Le site est prêt.").trim();
+            String title = root.optString("title", "Site créé par DIASCO").trim();
+            String html = root.optString("html", "").trim();
+            if (html.isEmpty()) {
+                return new SiteResult("Le backend a répondu, mais sans site HTML exploitable.", null, null);
+            }
+            return new SiteResult(answer.isEmpty() ? "Le site est prêt." : answer, title, html);
+        } catch (JSONException exception) {
+            return new SiteResult("Réponse de création de site illisible.", null, null);
+        }
+    }
+
     private String postForAnswer(String endpoint, JSONObject body, boolean allowHttp) {
         PostResult result = postJson(endpoint, body, allowHttp);
         if (result.error != null) return result.error;
         if (result.code < 200 || result.code >= 300) {
-            return "Erreur backend " + result.code + " : " + parseError(result.raw);
+            return formatBackendError(result.code, result.raw);
         }
 
         try {
@@ -253,5 +310,20 @@ public final class RemoteAiClient {
             // On renvoie le texte brut tronqué ci-dessous.
         }
         return raw.length() > 300 ? raw.substring(0, 300) + "…" : raw;
+    }
+
+    private String formatBackendError(int code, String raw) {
+        if (code == 402) {
+            return "La création d’image est temporairement indisponible. "
+                    + "Le propriétaire de DIASCO doit réactiver le crédit du service IA.";
+        }
+        if (code == 429) {
+            return "Le service IA reçoit trop de demandes. Réessayez dans quelques instants.";
+        }
+        String detail = parseError(raw);
+        if (detail == null || detail.trim().isEmpty()) {
+            return "Le service DIASCO est momentanément indisponible.";
+        }
+        return detail;
     }
 }

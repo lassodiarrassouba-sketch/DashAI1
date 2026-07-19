@@ -1,5 +1,6 @@
 import base64
 import binascii
+import html
 import os
 import re
 from functools import lru_cache
@@ -12,7 +13,7 @@ from openai import OpenAI
 
 load_dotenv()
 
-app = FastAPI(title="DashAI Backend", version="1.1.0")
+app = FastAPI(title="DIASCO Backend", version="2.0.0")
 
 DEFAULT_CORS_ORIGINS = {
     "http://localhost:5173",
@@ -24,10 +25,12 @@ ALLOWED_IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_IMAGE_BYTES = 7_000_000
 
 SYSTEM_PROMPT = """
-Tu es DashAI, un assistant vocal Android francophone.
+Tu es DIASCO, un assistant personnel francophone, naturel, attentif et créatif.
 Règles de réponse :
 - Réponds en français clair et naturel, sauf si l'utilisateur demande une autre langue.
 - Réponds directement à la question, sans inventer de faits.
+- Tiens une vraie conversation : comprends les sous-entendus à partir du contexte, adapte le ton et évite les formulations mécaniques.
+- Aide à réfléchir, écrire, apprendre, programmer, concevoir et créer, tout en restant honnête sur tes limites.
 - Quand tu n'es pas sûr, dis-le simplement et propose une vérification.
 - Les réponses vocales doivent rester courtes par défaut : 2 à 6 phrases.
 - N'utilise pas de Markdown pour les réponses courantes : pas de **gras**, pas de titres avec #.
@@ -84,6 +87,19 @@ class ImageResponse(BaseModel):
     image_base64: str
     mime_type: str
     revised_prompt: str | None = None
+
+
+class SiteRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=4000)
+    locale: str = Field(default="fr-FR", max_length=32)
+    client: str | None = Field(default=None, max_length=64)
+    history: str | None = Field(default=None, max_length=12000)
+
+
+class SiteResponse(BaseModel):
+    answer: str
+    title: str
+    html: str
 
 
 class VisionRequest(BaseModel):
@@ -150,6 +166,61 @@ def clean_answer(text: str, preserve_format: bool = False) -> str:
     return cleaned.strip()
 
 
+def provider_http_exception(exc: Exception, feature: str) -> HTTPException:
+    """Transforme les erreurs fournisseur en messages utiles sans exposer les détails internes."""
+    raw = str(exc).lower()
+    if "billing_hard_limit_reached" in raw or "billing hard limit" in raw:
+        return HTTPException(
+            status_code=402,
+            detail=(
+                "La génération est momentanément indisponible car le plafond de facturation "
+                "du compte IA est atteint. Réactivez le crédit ou augmentez la limite du compte API."
+            ),
+        )
+    if "insufficient_quota" in raw or "quota" in raw and "exceed" in raw:
+        return HTTPException(
+            status_code=402,
+            detail="Le crédit du compte IA est insuffisant pour cette demande.",
+        )
+    if "rate_limit" in raw or "rate limit" in raw:
+        return HTTPException(
+            status_code=429,
+            detail="Le service IA reçoit trop de demandes. Réessayez dans un instant.",
+        )
+    return HTTPException(
+        status_code=502,
+        detail=f"Le service IA {feature} est temporairement indisponible.",
+    )
+
+
+def extract_standalone_html(raw: str) -> str:
+    cleaned = raw.strip()
+    cleaned = re.sub(r"(?i)^\s*```(?:html)?\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```\s*$", "", cleaned)
+    lower = cleaned.lower()
+    doctype_index = lower.find("<!doctype html")
+    html_index = lower.find("<html")
+    starts = [index for index in (doctype_index, html_index) if index >= 0]
+    if not starts:
+        raise HTTPException(status_code=502, detail="Le site généré ne contient pas de document HTML complet.")
+    start = min(starts)
+    end = lower.rfind("</html>")
+    if end < start:
+        raise HTTPException(status_code=502, detail="Le site généré est incomplet.")
+    result = cleaned[start : end + len("</html>")].strip()
+    if len(result) > 500_000:
+        raise HTTPException(status_code=502, detail="Le site généré est trop volumineux.")
+    return result
+
+
+def title_from_html(document: str) -> str:
+    match = re.search(r"(?is)<title[^>]*>(.*?)</title>", document)
+    if not match:
+        return "Site créé par DIASCO"
+    title = re.sub(r"<[^>]+>", "", html.unescape(match.group(1))).strip()
+    return title[:100] or "Site créé par DIASCO"
+
+
 def normalize_image_payload(payload: VisionRequest) -> tuple[str, str]:
     raw_image = payload.image_base64.strip()
     mime_type = payload.mime_type.strip().lower() or "image/jpeg"
@@ -204,7 +275,7 @@ def ask(payload: AskRequest) -> AskResponse:
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Erreur fournisseur IA : {exc}") from exc
+        raise provider_http_exception(exc, "conversationnel") from exc
 
     answer = clean_answer(
         getattr(response, "output_text", "") or "",
@@ -250,7 +321,7 @@ def vision(payload: VisionRequest) -> AskResponse:
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Erreur fournisseur IA vision : {exc}") from exc
+        raise provider_http_exception(exc, "de vision") from exc
 
     answer = clean_answer(getattr(response, "output_text", "") or "")
     if not answer:
@@ -260,7 +331,7 @@ def vision(payload: VisionRequest) -> AskResponse:
 
 @app.post("/api/image", response_model=ImageResponse)
 def image(payload: ImageRequest) -> ImageResponse:
-    model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1").strip()
+    model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2").strip()
     size = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024").strip()
     quality = os.getenv("OPENAI_IMAGE_QUALITY", "low").strip()
     output_format = os.getenv("OPENAI_IMAGE_FORMAT", "png").strip().lower()
@@ -281,7 +352,7 @@ def image(payload: ImageRequest) -> ImageResponse:
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Erreur fournisseur IA image : {exc}") from exc
+        raise provider_http_exception(exc, "d’image") from exc
 
     data = response.data or []
     first = data[0] if data else None
@@ -296,4 +367,49 @@ def image(payload: ImageRequest) -> ImageResponse:
         image_base64=image_base64,
         mime_type=mime_type,
         revised_prompt=revised_prompt,
+    )
+
+
+@app.post("/api/site", response_model=SiteResponse)
+def create_site(payload: SiteRequest) -> SiteResponse:
+    model = os.getenv("OPENAI_SITE_MODEL", os.getenv("OPENAI_MODEL", "gpt-5.4-mini")).strip()
+    max_output_tokens = int(os.getenv("SITE_MAX_OUTPUT_TOKENS", "9000"))
+    history = (payload.history or "").strip()
+    prompt = f"""
+Tu es le studio web de DIASCO. Crée un site internet complet à partir de la demande ci-dessous.
+
+Exigences obligatoires :
+- Retourne uniquement un document HTML5 complet, de <!doctype html> à </html>.
+- Place tout le CSS dans une balise <style> et tout le JavaScript utile dans une balise <script>.
+- Le site doit être responsive, accessible, lisible sur mobile et prêt à être prévisualisé.
+- N'utilise aucune bibliothèque, police, image ou ressource externe.
+- N'ajoute aucun appel réseau, traqueur, collecte de données ni formulaire qui transmet des informations.
+- Utilise des formes CSS, des couleurs et une mise en page soignée lorsque la demande ne fournit pas d'images.
+- Implémente réellement les interactions simples demandées, sans texte expliquant comment utiliser le site.
+- N'entoure jamais le document de balises Markdown ```.
+
+Langue du téléphone : {payload.locale}
+Contexte récent :
+{history if history else 'Aucun contexte récent.'}
+
+Demande de l'utilisateur :
+{payload.prompt.strip()}
+""".strip()
+
+    try:
+        response = get_openai_client().responses.create(
+            model=model,
+            input=prompt,
+            max_output_tokens=max_output_tokens,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise provider_http_exception(exc, "de création de site") from exc
+
+    document = extract_standalone_html(getattr(response, "output_text", "") or "")
+    return SiteResponse(
+        answer="Le site est prêt. Vous pouvez le prévisualiser et télécharger le fichier HTML.",
+        title=title_from_html(document),
+        html=document,
     )

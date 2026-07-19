@@ -1,4 +1,4 @@
-const CACHE_NAME = "dashai-pwa-v1";
+const CACHE_NAME = "diasco-pwa-v2";
 const ASSETS = [
   "/",
   "/index.html",

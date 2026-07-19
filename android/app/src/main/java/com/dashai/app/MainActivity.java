@@ -1,15 +1,24 @@
 package com.dashai.app;
 
 import android.Manifest;
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.speech.RecognitionListener;
@@ -21,31 +30,49 @@ import android.text.InputType;
 import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
-import android.widget.Button;
-import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Switch;
+import android.widget.Space;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
 import com.dashai.app.ai.AiRepository;
 import com.dashai.app.ai.RemoteAiClient;
+import com.dashai.app.util.ConversationMemory;
 import com.dashai.app.util.TextUtils;
 import com.dashai.app.voice.VoiceAuthenticator;
+import com.dashai.app.voice.WakePhrase;
+import com.dashai.app.voice.WakeWordService;
+import com.google.android.material.button.MaterialButton;
+import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.materialswitch.MaterialSwitch;
 
-import java.util.ArrayList;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public final class MainActivity extends Activity {
+public final class MainActivity extends AppCompatActivity {
     private static final int REQUEST_RECORD_AUDIO = 42;
     private static final int REQUEST_IMAGE_CAPTURE = 43;
+    private static final int REQUEST_SAVE_IMAGE = 44;
+    private static final int REQUEST_NOTIFICATIONS = 45;
     private static final String PREFS = "dashai_prefs";
     private static final String KEY_ENDPOINT = "backend_endpoint";
     private static final String KEY_ONLINE = "online_enabled";
@@ -53,8 +80,8 @@ public final class MainActivity extends Activity {
     private static final String KEY_OWNER_PHRASE = "owner_phrase";
     private static final String KEY_VOICE_PROFILE = "voice_profile";
     private static final String KEY_PRIVACY_NOTICE_ACCEPTED = "privacy_notice_accepted";
-    private static final String FIXED_WAKE_PHRASE = "dis Diasco";
-    private static final String FIXED_WAKE_PHRASE_SPOKEN = "dis diasco";
+    private static final String FIXED_WAKE_PHRASE = WakePhrase.DISPLAY;
+    private static final String FIXED_WAKE_PHRASE_SPOKEN = WakePhrase.SPOKEN;
     private static final int MAX_HISTORY_LINES = 18;
     private static final long AUDIO_ERROR_CHAT_COOLDOWN_MS = 15_000L;
     private static final long WAKE_RESTART_DELAY_MS = 2_500L;
@@ -67,23 +94,23 @@ public final class MainActivity extends Activity {
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AiRepository aiRepository = new AiRepository();
-    private final ArrayList<String> recentConversation = new ArrayList<>();
     private final ConcurrentHashMap<String, Runnable> speechCallbacks = new ConcurrentHashMap<>();
 
     private SharedPreferences preferences;
     private EditText endpointInput;
     private EditText ownerPhraseInput;
-    private Switch onlineSwitch;
-    private Switch wakeSwitch;
+    private MaterialSwitch onlineSwitch;
+    private MaterialSwitch wakeSwitch;
     private LinearLayout chatContainer;
     private TextView statusText;
+    private View statusDot;
     private EditText questionInput;
-    private Button askButton;
-    private Button micButton;
-    private Button cameraButton;
-    private Button testButton;
-    private Button clearButton;
-    private Button enrollVoiceButton;
+    private MaterialButton askButton;
+    private MaterialButton micButton;
+    private MaterialButton cameraButton;
+    private MaterialButton testButton;
+    private MaterialButton clearButton;
+    private MaterialButton enrollVoiceButton;
     private ScrollView scrollView;
     private TextToSpeech tts;
     private SpeechRecognizer speechRecognizer;
@@ -102,6 +129,27 @@ public final class MainActivity extends Activity {
     private long lastAudioChatErrorAt;
     private long ownerVoiceTrustedUntilMs;
     private String pendingVisionPrompt;
+    private byte[] pendingImageBytes;
+    private String pendingImageMimeType;
+    private boolean wakeReceiverRegistered;
+
+    private final BroadcastReceiver wakeEventReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null || !WakeWordService.ACTION_EVENT.equals(intent.getAction())) return;
+            String event = intent.getStringExtra(WakeWordService.EXTRA_EVENT);
+            String text = intent.getStringExtra(WakeWordService.EXTRA_TEXT);
+            if (WakeWordService.EVENT_STATUS.equals(event)) {
+                status(text == null ? "Réveil vocal actif." : text);
+            } else if (WakeWordService.EVENT_WAKE.equals(event)) {
+                appendAssistant(text == null ? "Oui, je vous écoute." : text);
+            } else if (WakeWordService.EVENT_QUESTION.equals(event)) {
+                appendUser(text == null ? "" : text);
+            } else if (WakeWordService.EVENT_ANSWER.equals(event)) {
+                appendAssistant(text == null ? "" : text);
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -110,11 +158,34 @@ public final class MainActivity extends Activity {
         ensureProductionDefaults();
         buildUi();
         initTextToSpeech();
-        appendAssistant("Bonjour. Je suis prêt. Pose une question ou dites « dis Diasco » si le réveil vocal est activé.");
+        renderStoredConversation();
         showPrivacyNoticeIfNeeded();
         if (wakeSwitch.isChecked()) {
             wakeSwitch.post(() -> enableWakeMode());
         }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (!wakeReceiverRegistered) {
+            IntentFilter filter = new IntentFilter(WakeWordService.ACTION_EVENT);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(wakeEventReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(wakeEventReceiver, filter);
+            }
+            wakeReceiverRegistered = true;
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        if (wakeReceiverRegistered) {
+            unregisterReceiver(wakeEventReceiver);
+            wakeReceiverRegistered = false;
+        }
+        super.onStop();
     }
 
     @Override
@@ -133,39 +204,75 @@ public final class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        if (wakeModeEnabled) {
-            stopSpeechRecognizer();
-        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (wakeModeEnabled && !busy) {
-            startWakeListeningSoon(500);
-        }
+        wakeModeEnabled = wakeSwitch != null && wakeSwitch.isChecked();
+        statusReady();
     }
 
     private void buildUi() {
-        int padding = dp(16);
+        getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        int pagePadding = dp(16);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(padding, padding, padding, padding);
-        root.setBackgroundColor(0xFFF8FAFC);
+        root.setBackgroundColor(Color.rgb(243, 246, 245));
 
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(pagePadding, dp(12), pagePadding, dp(8));
+
+        MaterialCardView logoCard = new MaterialCardView(this);
+        logoCard.setRadius(dp(8));
+        logoCard.setCardElevation(0);
+        logoCard.setStrokeWidth(dp(1));
+        logoCard.setStrokeColor(Color.rgb(220, 228, 225));
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.mipmap.ic_launcher);
+        logo.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        logoCard.addView(logo, new FrameLayout.LayoutParams(-1, -1));
+        header.addView(logoCard, new LinearLayout.LayoutParams(dp(52), dp(52)));
+
+        LinearLayout identity = new LinearLayout(this);
+        identity.setOrientation(LinearLayout.VERTICAL);
+        identity.setPadding(dp(12), 0, 0, 0);
         TextView title = new TextView(this);
-        title.setText("DashAI");
-        title.setTextSize(28);
+        title.setText("DIASCO");
+        title.setTextSize(25);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(0xFF111827);
-        root.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        title.setTextColor(Color.rgb(23, 33, 38));
+        identity.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Assistant vocal + backend IA sécurisé — V3 contexte");
-        subtitle.setTextSize(14);
-        subtitle.setTextColor(0xFF475569);
-        subtitle.setPadding(0, 0, 0, dp(12));
-        root.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
+        subtitle.setText("Assistant vocal, visuel et créatif");
+        subtitle.setTextSize(13);
+        subtitle.setTextColor(Color.rgb(92, 107, 102));
+        identity.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
+        header.addView(identity, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        clearButton = createIconButton(R.drawable.ic_delete, "Effacer la conversation", false);
+        clearButton.setOnClickListener(view -> clearConversation());
+        header.addView(clearButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        root.addView(header, new LinearLayout.LayoutParams(-1, -2));
+
+        HorizontalScrollView actionScroller = new HorizontalScrollView(this);
+        actionScroller.setHorizontalScrollBarEnabled(false);
+        actionScroller.setClipToPadding(false);
+        actionScroller.setPadding(pagePadding, dp(4), pagePadding, dp(10));
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.addView(createQuickAction("Image", R.drawable.ic_sparkles,
+                () -> setQuestionTemplate("Crée une image de ")));
+        actions.addView(createQuickAction("Caméra", R.drawable.ic_camera, this::startCameraDescription));
+        actions.addView(createQuickAction("Code", R.drawable.ic_code,
+                () -> setQuestionTemplate("Écris le code pour ")));
+        actions.addView(createQuickAction("Site", R.drawable.ic_globe,
+                () -> setQuestionTemplate("Crée un site internet pour ")));
+        actionScroller.addView(actions, new HorizontalScrollView.LayoutParams(-2, -2));
+        root.addView(actionScroller, new LinearLayout.LayoutParams(-1, -2));
 
         endpointInput = new EditText(this);
         endpointInput.setSingleLine(true);
@@ -185,71 +292,84 @@ public final class MainActivity extends Activity {
         endpointInput.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) saveSettings();
         });
-        if (showDeveloperControls()) {
-            root.addView(endpointInput, new LinearLayout.LayoutParams(-1, -2));
-        }
 
-        LinearLayout switches = new LinearLayout(this);
-        switches.setOrientation(LinearLayout.HORIZONTAL);
-        switches.setGravity(Gravity.CENTER_VERTICAL);
-        switches.setPadding(0, dp(8), 0, dp(8));
-
-        onlineSwitch = new Switch(this);
+        onlineSwitch = new MaterialSwitch(this);
         onlineSwitch.setText("Mode en ligne");
         onlineSwitch.setChecked(isOnlineModeEnabled());
-        onlineSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                if (isOnlineModeForced() && !isChecked) {
-                    onlineSwitch.setChecked(true);
-                    status("Mode en ligne activé automatiquement.");
-                    return;
-                }
-                saveSettings();
-                status(isChecked ? "Mode en ligne activé." : "Mode hors ligne activé.");
+        onlineSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isOnlineModeForced() && !isChecked) {
+                onlineSwitch.setChecked(true);
+                status("Mode en ligne activé automatiquement.");
+                return;
             }
+            saveSettings();
+            status(isChecked ? "Mode en ligne activé." : "Mode hors ligne activé.");
         });
-        if (showDeveloperControls()) {
-            switches.addView(onlineSwitch, new LinearLayout.LayoutParams(0, -2, 1));
-        }
 
-        testButton = new Button(this);
+        testButton = new MaterialButton(this);
         testButton.setText("Tester");
-        testButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                testBackend();
-            }
-        });
+        testButton.setCornerRadius(dp(8));
+        testButton.setOnClickListener(view -> testBackend());
         if (showDeveloperControls()) {
-            switches.addView(testButton, new LinearLayout.LayoutParams(-2, -2));
+            MaterialCardView debugCard = new MaterialCardView(this);
+            debugCard.setRadius(dp(8));
+            debugCard.setCardElevation(0);
+            debugCard.setStrokeColor(Color.rgb(220, 228, 225));
+            debugCard.setStrokeWidth(dp(1));
+            debugCard.setCardBackgroundColor(Color.WHITE);
+            LinearLayout debugContent = new LinearLayout(this);
+            debugContent.setOrientation(LinearLayout.VERTICAL);
+            debugContent.setPadding(dp(12), dp(8), dp(12), dp(8));
+            debugContent.addView(endpointInput, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout debugRow = new LinearLayout(this);
+            debugRow.setGravity(Gravity.CENTER_VERTICAL);
+            debugRow.addView(onlineSwitch, new LinearLayout.LayoutParams(0, -2, 1f));
+            debugRow.addView(testButton, new LinearLayout.LayoutParams(-2, dp(44)));
+            debugContent.addView(debugRow, new LinearLayout.LayoutParams(-1, -2));
+            debugCard.addView(debugContent);
+            LinearLayout.LayoutParams debugParams = new LinearLayout.LayoutParams(-1, -2);
+            debugParams.setMargins(pagePadding, 0, pagePadding, dp(10));
+            root.addView(debugCard, debugParams);
         }
 
-        clearButton = new Button(this);
-        clearButton.setText("Effacer");
-        clearButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                clearConversation();
-            }
-        });
-        switches.addView(clearButton, new LinearLayout.LayoutParams(-2, -2));
-        root.addView(switches, new LinearLayout.LayoutParams(-1, -2));
+        MaterialCardView wakeCard = new MaterialCardView(this);
+        wakeCard.setRadius(dp(8));
+        wakeCard.setCardElevation(0);
+        wakeCard.setStrokeColor(Color.rgb(220, 228, 225));
+        wakeCard.setStrokeWidth(dp(1));
+        wakeCard.setCardBackgroundColor(Color.WHITE);
+        LinearLayout wakeContent = new LinearLayout(this);
+        wakeContent.setOrientation(LinearLayout.HORIZONTAL);
+        wakeContent.setGravity(Gravity.CENTER_VERTICAL);
+        wakeContent.setPadding(dp(14), dp(11), dp(12), dp(11));
 
-        wakeSwitch = new Switch(this);
-        wakeSwitch.setText("Réveil vocal : " + FIXED_WAKE_PHRASE);
+        LinearLayout wakeLabels = new LinearLayout(this);
+        wakeLabels.setOrientation(LinearLayout.VERTICAL);
+        TextView wakeTitle = new TextView(this);
+        wakeTitle.setText("Réveil vocal");
+        wakeTitle.setTextSize(15);
+        wakeTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        wakeTitle.setTextColor(Color.rgb(23, 33, 38));
+        wakeLabels.addView(wakeTitle);
+        TextView wakePhrase = new TextView(this);
+        wakePhrase.setText("« Dis Diasco »");
+        wakePhrase.setTextSize(13);
+        wakePhrase.setTextColor(Color.rgb(0, 143, 114));
+        wakeLabels.addView(wakePhrase);
+        wakeContent.addView(wakeLabels, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        wakeSwitch = new MaterialSwitch(this);
         wakeSwitch.setChecked(preferences.getBoolean(KEY_WAKE, false));
-        wakeSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                if (isChecked) {
-                    enableWakeMode();
-                } else {
-                    disableWakeMode();
-                }
-            }
+        wakeSwitch.setContentDescription("Activer le réveil vocal Dis Diasco");
+        wakeSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) enableWakeMode();
+            else disableWakeMode();
         });
-        root.addView(wakeSwitch, new LinearLayout.LayoutParams(-1, -2));
+        wakeContent.addView(wakeSwitch, new LinearLayout.LayoutParams(-2, -2));
+        wakeCard.addView(wakeContent);
+        LinearLayout.LayoutParams wakeParams = new LinearLayout.LayoutParams(-1, -2);
+        wakeParams.setMargins(pagePadding, 0, pagePadding, dp(8));
+        root.addView(wakeCard, wakeParams);
 
         ownerPhraseInput = new EditText(this);
         ownerPhraseInput.setSingleLine(true);
@@ -269,46 +389,56 @@ public final class MainActivity extends Activity {
         ownerPhraseInput.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) saveSettings();
         });
-        if (showDeveloperControls()) {
-            root.addView(ownerPhraseInput, new LinearLayout.LayoutParams(-1, -2));
-        }
+        ownerPhraseInput.setEnabled(false);
 
-        enrollVoiceButton = new Button(this);
+        enrollVoiceButton = new MaterialButton(this);
         enrollVoiceButton.setText(hasVoiceProfile() ? "Refaire empreinte voix" : "Enregistrer ma voix");
-        enrollVoiceButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                enrollOwnerVoice();
-            }
-        });
-        if (showDeveloperControls()) {
-            root.addView(enrollVoiceButton, new LinearLayout.LayoutParams(-1, -2));
-        }
+        enrollVoiceButton.setOnClickListener(view -> enrollOwnerVoice());
 
+        LinearLayout statusRow = new LinearLayout(this);
+        statusRow.setOrientation(LinearLayout.HORIZONTAL);
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        statusRow.setPadding(pagePadding, dp(2), pagePadding, dp(8));
+        statusDot = new View(this);
+        statusDot.setBackground(circleBackground(Color.rgb(0, 143, 114)));
+        statusRow.addView(statusDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
         statusText = new TextView(this);
-        statusText.setText("Micro : prêt.");
-        statusText.setTextColor(0xFF334155);
-        statusText.setPadding(0, 0, 0, dp(8));
-        root.addView(statusText, new LinearLayout.LayoutParams(-1, -2));
+        statusText.setText("Prêt");
+        statusText.setTextSize(12);
+        statusText.setTextColor(Color.rgb(92, 107, 102));
+        statusText.setPadding(dp(8), 0, 0, 0);
+        statusRow.addView(statusText, new LinearLayout.LayoutParams(0, -2, 1f));
+        root.addView(statusRow, new LinearLayout.LayoutParams(-1, -2));
 
         scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+        scrollView.setClipToPadding(false);
         chatContainer = new LinearLayout(this);
         chatContainer.setOrientation(LinearLayout.VERTICAL);
-        chatContainer.setPadding(dp(12), dp(12), dp(12), dp(12));
-        chatContainer.setBackgroundColor(0xFFFFFFFF);
+        chatContainer.setPadding(pagePadding, dp(4), pagePadding, dp(18));
+        chatContainer.setBackgroundColor(Color.TRANSPARENT);
         scrollView.addView(chatContainer, new ScrollView.LayoutParams(-1, -2));
         root.addView(scrollView, new LinearLayout.LayoutParams(-1, 0, 1));
 
+        LinearLayout composer = new LinearLayout(this);
+        composer.setOrientation(LinearLayout.VERTICAL);
+        composer.setPadding(pagePadding, dp(9), pagePadding, dp(12));
+        composer.setBackgroundColor(Color.WHITE);
+
         LinearLayout inputRow = new LinearLayout(this);
         inputRow.setOrientation(LinearLayout.HORIZONTAL);
-        inputRow.setGravity(Gravity.CENTER_VERTICAL);
-        inputRow.setPadding(0, dp(10), 0, 0);
+        inputRow.setGravity(Gravity.BOTTOM);
 
         questionInput = new EditText(this);
         questionInput.setSingleLine(false);
         questionInput.setMinLines(1);
-        questionInput.setMaxLines(3);
-        questionInput.setHint("Pose ta question…");
+        questionInput.setMaxLines(4);
+        questionInput.setTextSize(16);
+        questionInput.setTextColor(Color.rgb(23, 33, 38));
+        questionInput.setHintTextColor(Color.rgb(128, 143, 138));
+        questionInput.setHint("Écrivez à DIASCO…");
+        questionInput.setPadding(dp(14), dp(11), dp(14), dp(11));
+        questionInput.setBackground(roundedBackground(Color.rgb(248, 250, 249), Color.rgb(220, 228, 225), 8));
         questionInput.setImeOptions(EditorInfo.IME_ACTION_SEND);
         questionInput.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEND) {
@@ -317,38 +447,25 @@ public final class MainActivity extends Activity {
             }
             return false;
         });
-        inputRow.addView(questionInput, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(0, -2, 1f);
+        inputParams.rightMargin = dp(6);
+        inputRow.addView(questionInput, inputParams);
 
-        cameraButton = new Button(this);
-        cameraButton.setText("📷");
-        cameraButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                startCameraDescription();
-            }
-        });
-        inputRow.addView(cameraButton, new LinearLayout.LayoutParams(-2, -2));
+        cameraButton = createIconButton(R.drawable.ic_camera, "Décrire avec la caméra", false);
+        cameraButton.setOnClickListener(view -> startCameraDescription());
+        inputRow.addView(cameraButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
 
-        micButton = new Button(this);
-        micButton.setText("🎤");
-        micButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                startVoiceInput();
-            }
-        });
-        inputRow.addView(micButton, new LinearLayout.LayoutParams(-2, -2));
+        micButton = createIconButton(R.drawable.ic_mic, "Poser une question à la voix", false);
+        micButton.setOnClickListener(view -> startVoiceInput());
+        inputRow.addView(micButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
 
-        askButton = new Button(this);
-        askButton.setText("Envoyer");
-        askButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                askCurrentQuestion();
-            }
-        });
-        inputRow.addView(askButton, new LinearLayout.LayoutParams(-2, -2));
-        root.addView(inputRow, new LinearLayout.LayoutParams(-1, -2));
+        askButton = createIconButton(R.drawable.ic_send, "Envoyer", true);
+        askButton.setOnClickListener(view -> askCurrentQuestion());
+        LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+        sendParams.leftMargin = dp(2);
+        inputRow.addView(askButton, sendParams);
+        composer.addView(inputRow, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(composer, new LinearLayout.LayoutParams(-1, -2));
 
         setContentView(root);
         updateControlsState();
@@ -381,18 +498,30 @@ public final class MainActivity extends Activity {
         if (preferences.getBoolean(KEY_PRIVACY_NOTICE_ACCEPTED, false)) return;
         new AlertDialog.Builder(this)
                 .setTitle("Confidentialité")
-                .setMessage("DashAI peut envoyer vos questions et les photos que vous choisissez d’analyser vers son backend IA sécurisé afin de générer une réponse. L’empreinte vocale reste stockée sur cet appareil.")
+                .setMessage("DIASCO peut envoyer vos questions, vos demandes créatives et les photos que vous choisissez d’analyser vers son backend IA sécurisé. La mémoire de conversation reste stockée sur cet appareil.")
                 .setPositiveButton("J’ai compris", (dialog, which) -> preferences.edit()
                         .putBoolean(KEY_PRIVACY_NOTICE_ACCEPTED, true)
                         .apply())
                 .show();
     }
 
+    private void renderStoredConversation() {
+        List<ConversationMemory.Entry> entries = ConversationMemory.load(this);
+        if (entries.isEmpty()) {
+            appendAssistant("Bonjour, je suis DIASCO. Je vous écoute.");
+            return;
+        }
+        for (ConversationMemory.Entry entry : entries) {
+            append(entry.author, entry.text, looksLikeTechnicalContent(entry.text));
+        }
+    }
+
     private void ensureProductionDefaults() {
-        preferences.edit()
+        SharedPreferences.Editor editor = preferences.edit()
                 .putBoolean(KEY_ONLINE, true)
-                .putString(KEY_OWNER_PHRASE, FIXED_WAKE_PHRASE_SPOKEN)
-                .apply();
+                .putString(KEY_OWNER_PHRASE, FIXED_WAKE_PHRASE_SPOKEN);
+        if (!preferences.contains(KEY_WAKE)) editor.putBoolean(KEY_WAKE, true);
+        editor.apply();
     }
 
     private void askCurrentQuestion() {
@@ -410,6 +539,11 @@ public final class MainActivity extends Activity {
         if (commandAnswer != null) {
             appendAssistant(commandAnswer);
             speakAndResumeWake(commandAnswer);
+            return;
+        }
+
+        if (isWebsiteRequest(question)) {
+            generateRequestedWebsite(question);
             return;
         }
 
@@ -460,7 +594,7 @@ public final class MainActivity extends Activity {
             if (isOnlineModeForced()) {
                 onlineSwitch.setChecked(true);
                 saveSettings();
-                return "Le mode en ligne reste activé automatiquement pour DashAI.";
+                return "Le mode en ligne reste activé automatiquement pour DIASCO.";
             }
             onlineSwitch.setChecked(false);
             saveSettings();
@@ -491,6 +625,24 @@ public final class MainActivity extends Activity {
                 || clean.startsWith("image de")
                 || clean.startsWith("une image de");
         return asksForVisual && startsLikeCommand;
+    }
+
+    private boolean isWebsiteRequest(String question) {
+        String clean = TextUtils.normalizeForIntent(question);
+        if (clean.isEmpty()) return false;
+        boolean website = clean.contains("site internet")
+                || clean.contains("site web")
+                || clean.contains("page web")
+                || clean.contains("landing page")
+                || clean.contains("portfolio web")
+                || clean.contains("boutique en ligne");
+        boolean creation = clean.startsWith("cree")
+                || clean.startsWith("genere")
+                || clean.startsWith("fais")
+                || clean.startsWith("construis")
+                || clean.startsWith("developpe")
+                || clean.startsWith("code");
+        return website && creation;
     }
 
     private boolean isTechnicalRequest(String question) {
@@ -555,6 +707,58 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void generateRequestedWebsite(String prompt) {
+        if (!isOnlineModeEnabled()) {
+            appendAssistant("Le mode en ligne doit être actif pour créer un site.");
+            statusReady();
+            return;
+        }
+
+        saveSettings();
+        String endpoint = currentEndpoint();
+        String history = buildHistoryForAi();
+        setBusy(true);
+        status("Site : création en cours…");
+
+        executor.execute(() -> {
+            RemoteAiClient.SiteResult result = new RemoteAiClient().generateWebsite(
+                    endpoint,
+                    prompt,
+                    Locale.getDefault().toLanguageTag(),
+                    history,
+                    isDebugBuild()
+            );
+            runOnUiThread(() -> {
+                setBusy(false);
+                String message = cleanAssistantText(result.message);
+                appendAssistant(message);
+                rememberTurn(prompt, message);
+                if (result.hasSite()) {
+                    openWebsitePreview(result.title, result.html);
+                    status("Site prêt à prévisualiser.");
+                    speakAndResumeWake("Le site est prêt. Je l’ai ouvert dans l’aperçu.");
+                } else {
+                    statusReady();
+                    speakAndResumeWake(message);
+                }
+            });
+        });
+    }
+
+    private void openWebsitePreview(String title, String html) {
+        File file = new File(getCacheDir(), "diasco-generated-site.html");
+        try (FileOutputStream output = new FileOutputStream(file, false)) {
+            output.write(html.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException exception) {
+            appendAssistant("Le site a été créé, mais son aperçu n’a pas pu être préparé.");
+            return;
+        }
+        Intent intent = new Intent(this, SitePreviewActivity.class)
+                .putExtra(SitePreviewActivity.EXTRA_FILE_PATH, file.getAbsolutePath())
+                .putExtra(SitePreviewActivity.EXTRA_SITE_TITLE, title);
+        startActivity(intent);
+    }
+
 
     private boolean looksLikeFollowUp(String question) {
         String clean = TextUtils.normalizeForIntent(question);
@@ -598,7 +802,7 @@ public final class MainActivity extends Activity {
         }
 
         return questionForAi + "\n\n"
-                + "Instruction d'affichage DashAI : la demande concerne du code, une formule ou un contenu technique. "
+                + "Instruction d'affichage DIASCO : la demande concerne du code, une formule ou un contenu technique. "
                 + "Réponds de façon précise et exploitable à l'écran. "
                 + "Pour le code, conserve l'indentation et les retours à la ligne, mais n'encadre pas le code avec des balises Markdown ```."
                 + "Pour les formules, écris la formule clairement sur une ligne séparée, puis explique les variables brièvement.";
@@ -655,6 +859,20 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_SAVE_IMAGE) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null && pendingImageBytes != null) {
+                try (OutputStream output = getContentResolver().openOutputStream(data.getData())) {
+                    if (output == null) throw new IOException("Flux de sortie indisponible");
+                    output.write(pendingImageBytes);
+                    Toast.makeText(this, "Image enregistrée.", Toast.LENGTH_LONG).show();
+                } catch (IOException exception) {
+                    Toast.makeText(this, "Impossible d’enregistrer l’image.", Toast.LENGTH_LONG).show();
+                }
+            }
+            pendingImageBytes = null;
+            pendingImageMimeType = null;
+            return;
+        }
         if (requestCode != REQUEST_IMAGE_CAPTURE) return;
 
         if (resultCode != RESULT_OK) {
@@ -722,7 +940,14 @@ public final class MainActivity extends Activity {
     }
 
     private void startVoiceInput() {
-        if (busy || voiceListening || wakeModeEnabled) return;
+        if (busy || voiceListening) return;
+        if (wakeModeEnabled) {
+            Intent serviceIntent = new Intent(this, WakeWordService.class)
+                    .setAction(WakeWordService.ACTION_LISTEN_NOW);
+            ContextCompat.startForegroundService(this, serviceIntent);
+            status("Micro : activation de l’écoute…");
+            return;
+        }
         manualQuestionAutoRetryUsed = false;
         startSpeechRecognition(VOICE_MODE_MANUAL_QUESTION);
     }
@@ -730,7 +955,7 @@ public final class MainActivity extends Activity {
     private void enableWakeMode() {
         if (busy) return;
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            appendAssistant("La reconnaissance vocale Android n’est pas disponible sur cet appareil.");
+            appendAssistant("La reconnaissance vocale Android n’est pas disponible sur ce téléphone.");
             setWakeSwitchChecked(false);
             return;
         }
@@ -739,10 +964,26 @@ public final class MainActivity extends Activity {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
             return;
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            pendingEnableWakeMode = true;
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+            return;
+        }
         wakeModeEnabled = true;
         pendingEnableWakeMode = false;
         saveSettings();
-        startWakeListeningSoon(100);
+        Intent serviceIntent = new Intent(this, WakeWordService.class).setAction(WakeWordService.ACTION_START);
+        try {
+            ContextCompat.startForegroundService(this, serviceIntent);
+            status("Réveil vocal actif, même écran verrouillé.");
+        } catch (RuntimeException exception) {
+            wakeModeEnabled = false;
+            setWakeSwitchChecked(false);
+            saveSettings();
+            appendAssistant("Le service de réveil vocal n’a pas pu démarrer sur ce téléphone.");
+        }
+        updateControlsState();
     }
 
     private void disableWakeMode() {
@@ -751,6 +992,7 @@ public final class MainActivity extends Activity {
         clearOwnerVoiceTrust();
         saveSettings();
         stopSpeechRecognizer();
+        stopService(new Intent(this, WakeWordService.class));
         statusReady();
         updateControlsState();
     }
@@ -820,7 +1062,7 @@ public final class MainActivity extends Activity {
             intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1_800);
             intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1_200);
         }
-        String prompt = "Pose ta question à DashAI";
+        String prompt = "Posez votre question à DIASCO";
         if (mode == VOICE_MODE_WAKE_LISTENING) {
             prompt = "Dites : dis Diasco";
         } else if (mode == VOICE_MODE_OWNER_CHECK) {
@@ -1018,25 +1260,7 @@ public final class MainActivity extends Activity {
     }
 
     private boolean containsWakePhrase(String text) {
-        String clean = TextUtils.normalizeForIntent(text);
-        String compact = clean.replace(" ", "");
-        return compact.contains("diasco")
-                || compact.contains("diasko")
-                || compact.contains("diasquo")
-                || compact.contains("diascot")
-                || compact.contains("diascoq")
-                || compact.contains("diazko")
-                || compact.contains("djasco")
-                || compact.contains("yasco")
-                || compact.contains("diaco")
-                || compact.contains("dixdiasco")
-                || clean.contains("dis di asco")
-                || clean.contains("dit di asco")
-                || clean.contains("dis diasco")
-                || clean.contains("dit diasco")
-                || clean.contains("dix diasco")
-                || (clean.contains("dis") && compact.contains("dia"))
-                || (clean.contains("dit") && compact.contains("dia"));
+        return WakePhrase.matches(text);
     }
 
     private String cleanOwnerPhrase() {
@@ -1192,11 +1416,7 @@ public final class MainActivity extends Activity {
     }
 
     private void speakAndResumeWake(String text) {
-        if (wakeModeEnabled) {
-            speakThen(text, () -> startWakeListeningSoon(300));
-        } else {
-            speak(text);
-        }
+        speak(text);
     }
 
     private void statusForListeningMode(int mode) {
@@ -1230,15 +1450,9 @@ public final class MainActivity extends Activity {
     private void setWakeSwitchChecked(boolean checked) {
         wakeSwitch.setOnCheckedChangeListener(null);
         wakeSwitch.setChecked(checked);
-        wakeSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                if (isChecked) {
-                    enableWakeMode();
-                } else {
-                    disableWakeMode();
-                }
-            }
+        wakeSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isChecked) enableWakeMode();
+            else disableWakeMode();
         });
     }
 
@@ -1263,6 +1477,16 @@ public final class MainActivity extends Activity {
         } else if (requestCode == REQUEST_RECORD_AUDIO && pendingEnrollVoice) {
             pendingEnrollVoice = false;
             statusReady();
+        } else if (requestCode == REQUEST_NOTIFICATIONS) {
+            if (pendingEnableWakeMode && grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                enableWakeMode();
+            } else if (pendingEnableWakeMode) {
+                pendingEnableWakeMode = false;
+                setWakeSwitchChecked(false);
+                appendAssistant("La notification permanente est nécessaire au réveil vocal écran verrouillé.");
+                statusReady();
+            }
         }
     }
 
@@ -1272,11 +1496,11 @@ public final class MainActivity extends Activity {
 
     private void appendAssistant(String text) {
         String clean = cleanAssistantText(text);
-        append("DashAI", clean, looksLikeTechnicalContent(clean));
+        append("DIASCO", clean, looksLikeTechnicalContent(clean));
     }
 
     private void appendAssistant(String text, boolean technical) {
-        append("DashAI", cleanAssistantText(text), technical);
+        append("DIASCO", cleanAssistantText(text), technical);
     }
 
     private void appendAudioErrorOnce(String text) {
@@ -1287,8 +1511,9 @@ public final class MainActivity extends Activity {
     }
 
     private void clearConversation() {
-        recentConversation.clear();
+        ConversationMemory.clear(this);
         chatContainer.removeAllViews();
+        appendAssistant("Nouvelle conversation. Je vous écoute.");
         statusReady();
     }
 
@@ -1307,20 +1532,11 @@ public final class MainActivity extends Activity {
     }
 
     private void rememberTurn(String userQuestion, String assistantAnswer) {
-        recentConversation.add("Vous : " + userQuestion);
-        recentConversation.add("DashAI : " + assistantAnswer);
-        while (recentConversation.size() > MAX_HISTORY_LINES) {
-            recentConversation.remove(0);
-        }
+        ConversationMemory.appendTurn(this, userQuestion, assistantAnswer);
     }
 
     private String buildHistoryForAi() {
-        if (recentConversation.isEmpty()) return "";
-        StringBuilder builder = new StringBuilder();
-        for (String line : recentConversation) {
-            builder.append(line).append('\n');
-        }
-        return builder.toString().trim();
+        return ConversationMemory.buildHistory(this);
     }
 
     private void append(String author, String text) {
@@ -1328,22 +1544,70 @@ public final class MainActivity extends Activity {
     }
 
     private void append(String author, String text, boolean technical) {
+        if (text == null || text.trim().isEmpty()) return;
+        boolean user = "Vous".equalsIgnoreCase(author);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(user ? Gravity.END : Gravity.START);
+
+        MaterialCardView bubble = new MaterialCardView(this);
+        bubble.setRadius(dp(8));
+        bubble.setCardElevation(0);
+        bubble.setStrokeWidth(technical ? 0 : dp(1));
+        bubble.setStrokeColor(Color.rgb(220, 228, 225));
+        bubble.setCardBackgroundColor(technical
+                ? Color.rgb(23, 33, 38)
+                : user ? Color.rgb(225, 245, 238) : Color.WHITE);
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(12), dp(9), dp(12), dp(10));
+
+        LinearLayout meta = new LinearLayout(this);
+        meta.setOrientation(LinearLayout.HORIZONTAL);
+        meta.setGravity(Gravity.CENTER_VERTICAL);
+        TextView authorView = new TextView(this);
+        authorView.setText(user ? "Vous" : "DIASCO");
+        authorView.setTextSize(11);
+        authorView.setTypeface(Typeface.DEFAULT_BOLD);
+        authorView.setTextColor(technical ? Color.rgb(168, 231, 211) : Color.rgb(0, 122, 97));
+        meta.addView(authorView, new LinearLayout.LayoutParams(0, -2, 1f));
+        if (technical) {
+            MaterialButton copyButton = createIconButton(R.drawable.ic_copy, "Copier le contenu", false);
+            copyButton.setIconTint(ColorStateList.valueOf(Color.WHITE));
+            copyButton.setOnClickListener(view -> copyToClipboard(text));
+            meta.addView(copyButton, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        }
+        content.addView(meta, new LinearLayout.LayoutParams(-1, -2));
+
         TextView messageView = new TextView(this);
-        messageView.setText(author + " : " + text);
+        messageView.setText(text.trim());
         messageView.setTextSize(technical ? 14 : 16);
-        messageView.setTextColor(0xFF111827);
+        messageView.setTextColor(technical ? Color.WHITE : Color.rgb(23, 33, 38));
         messageView.setTextIsSelectable(true);
+        messageView.setLineSpacing(0, 1.08f);
+        messageView.setMaxWidth(Math.max(dp(220), getResources().getDisplayMetrics().widthPixels - dp(74)));
         if (technical) {
             messageView.setTypeface(Typeface.MONOSPACE);
-            messageView.setBackgroundColor(0xFFF1F5F9);
-            messageView.setPadding(dp(8), dp(8), dp(8), dp(8));
         }
+        content.addView(messageView, new LinearLayout.LayoutParams(-1, -2));
+        bubble.addView(content);
+        row.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
+
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         if (chatContainer.getChildCount() > 0) {
-            params.topMargin = dp(10);
+            params.topMargin = dp(9);
         }
-        chatContainer.addView(messageView, params);
+        chatContainer.addView(row, params);
         scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+    }
+
+    private void copyToClipboard(String text) {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard == null) return;
+        clipboard.setPrimaryClip(ClipData.newPlainText("Contenu DIASCO", text));
+        Toast.makeText(this, "Copié.", Toast.LENGTH_SHORT).show();
     }
 
     private boolean looksLikeTechnicalContent(String text) {
@@ -1398,21 +1662,60 @@ public final class MainActivity extends Activity {
                 return;
             }
 
+            MaterialCardView imageCard = new MaterialCardView(this);
+            imageCard.setRadius(dp(8));
+            imageCard.setCardElevation(0);
+            imageCard.setStrokeWidth(dp(1));
+            imageCard.setStrokeColor(Color.rgb(220, 228, 225));
+            imageCard.setCardBackgroundColor(Color.WHITE);
+            LinearLayout imageContent = new LinearLayout(this);
+            imageContent.setOrientation(LinearLayout.VERTICAL);
+
             ImageView imageView = new ImageView(this);
             imageView.setImageBitmap(bitmap);
             imageView.setAdjustViewBounds(true);
             imageView.setMaxHeight(dp(420));
             imageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            imageView.setBackgroundColor(0xFFE5E7EB);
-            imageView.setPadding(dp(4), dp(4), dp(4), dp(4));
+            imageView.setBackgroundColor(Color.rgb(239, 243, 241));
+            imageContent.addView(imageView, new LinearLayout.LayoutParams(-1, -2));
+
+            MaterialButton saveButton = new MaterialButton(this);
+            saveButton.setText("Enregistrer l’image");
+            saveButton.setIconResource(R.drawable.ic_download);
+            saveButton.setIconTint(ColorStateList.valueOf(Color.WHITE));
+            saveButton.setTextColor(Color.WHITE);
+            saveButton.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(0, 143, 114)));
+            saveButton.setCornerRadius(dp(8));
+            saveButton.setOnClickListener(view -> requestSaveImage(bytes, mimeType));
+            LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(48));
+            saveParams.setMargins(dp(10), dp(8), dp(10), dp(10));
+            imageContent.addView(saveButton, saveParams);
+            imageCard.addView(imageContent);
 
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
             params.topMargin = dp(10);
-            chatContainer.addView(imageView, params);
+            chatContainer.addView(imageCard, params);
         } catch (IllegalArgumentException ex) {
             appendAssistant("L’image reçue est illisible.");
         }
         scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+    }
+
+    private void requestSaveImage(byte[] bytes, String mimeType) {
+        pendingImageBytes = bytes;
+        pendingImageMimeType = mimeType == null || mimeType.trim().isEmpty() ? "image/png" : mimeType;
+        String extension = pendingImageMimeType.contains("jpeg") || pendingImageMimeType.contains("jpg") ? "jpg" : "png";
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType(pendingImageMimeType)
+                .putExtra(Intent.EXTRA_TITLE, "diasco-image-" + System.currentTimeMillis() + "." + extension);
+        try {
+            startActivityForResult(intent, REQUEST_SAVE_IMAGE);
+        } catch (ActivityNotFoundException exception) {
+            pendingImageBytes = null;
+            pendingImageMimeType = null;
+            Toast.makeText(this, "Aucun gestionnaire de fichiers disponible.", Toast.LENGTH_LONG).show();
+        }
     }
 
     private void speak(String text) {
@@ -1425,7 +1728,7 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        String utteranceId = "dashai-tts-" + (++speechCounter);
+        String utteranceId = "diasco-tts-" + (++speechCounter);
         if (afterSpeech != null) {
             speechCallbacks.put(utteranceId, afterSpeech);
         }
@@ -1531,18 +1834,18 @@ public final class MainActivity extends Activity {
         questionInput.setEnabled(!busy);
         onlineSwitch.setEnabled(!busy && !isOnlineModeForced());
         wakeSwitch.setEnabled(!busy);
-        if (wakeModeEnabled || wakeSwitch.isChecked()) {
-            micButton.setText("Réveil");
-        } else {
-            micButton.setText(voiceListening ? "Écoute" : "🎤");
-        }
+        micButton.setText(null);
+        micButton.setIconResource(R.drawable.ic_mic);
+        micButton.setContentDescription(wakeModeEnabled
+                ? "Le réveil vocal est actif"
+                : voiceListening ? "Écoute en cours" : "Poser une question à la voix");
     }
 
     private void statusReady() {
         if (wakeModeEnabled) {
-            status(idleMessageForMode(VOICE_MODE_WAKE_LISTENING));
+            status("Réveil vocal actif · « Dis Diasco »");
         } else {
-            status("Micro : prêt.");
+            status("Prêt");
         }
     }
 
@@ -1550,8 +1853,86 @@ public final class MainActivity extends Activity {
         return (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
     }
 
+    private MaterialButton createIconButton(int iconRes, String description, boolean primary) {
+        MaterialButton button = new MaterialButton(this);
+        button.setText(null);
+        button.setIconResource(iconRes);
+        button.setIconGravity(MaterialButton.ICON_GRAVITY_TEXT_START);
+        button.setIconPadding(0);
+        button.setIconTint(ColorStateList.valueOf(primary ? Color.WHITE : Color.rgb(23, 33, 38)));
+        button.setBackgroundTintList(ColorStateList.valueOf(primary
+                ? Color.rgb(0, 143, 114)
+                : Color.TRANSPARENT));
+        button.setCornerRadius(dp(8));
+        button.setMinWidth(0);
+        button.setMinHeight(0);
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        button.setPadding(0, 0, 0, 0);
+        button.setContentDescription(description);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) button.setTooltipText(description);
+        return button;
+    }
+
+    private MaterialButton createQuickAction(String label, int iconRes, Runnable action) {
+        MaterialButton button = new MaterialButton(this);
+        button.setText(label);
+        button.setTextSize(13);
+        button.setAllCaps(false);
+        button.setTextColor(Color.rgb(23, 33, 38));
+        button.setIconResource(iconRes);
+        button.setIconTint(ColorStateList.valueOf(Color.rgb(0, 143, 114)));
+        button.setIconSize(dp(20));
+        button.setIconPadding(dp(7));
+        button.setBackgroundTintList(ColorStateList.valueOf(Color.WHITE));
+        button.setStrokeColor(ColorStateList.valueOf(Color.rgb(220, 228, 225)));
+        button.setStrokeWidth(dp(1));
+        button.setCornerRadius(dp(8));
+        button.setMinHeight(dp(44));
+        button.setOnClickListener(view -> action.run());
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, dp(44));
+        params.rightMargin = dp(8);
+        button.setLayoutParams(params);
+        return button;
+    }
+
+    private void setQuestionTemplate(String template) {
+        questionInput.setText(template);
+        questionInput.setSelection(questionInput.length());
+        questionInput.requestFocus();
+        android.view.inputmethod.InputMethodManager keyboard =
+                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (keyboard != null) keyboard.showSoftInput(questionInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+    }
+
+    private GradientDrawable roundedBackground(int fillColor, int strokeColor, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fillColor);
+        drawable.setCornerRadius(dp(radiusDp));
+        drawable.setStroke(dp(1), strokeColor);
+        return drawable;
+    }
+
+    private GradientDrawable circleBackground(int color) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setShape(GradientDrawable.OVAL);
+        drawable.setColor(color);
+        return drawable;
+    }
+
     private void status(String message) {
-        statusText.setText(message);
+        String safeMessage = message == null || message.trim().isEmpty() ? "Prêt" : message.trim();
+        statusText.setText(safeMessage);
+        if (statusDot != null) {
+            String normalized = TextUtils.normalizeForIntent(safeMessage);
+            int dotColor = normalized.contains("erreur") || normalized.contains("indisponible")
+                    ? Color.rgb(196, 66, 66)
+                    : normalized.contains("cours") || normalized.contains("reflechit")
+                    || normalized.contains("traitement") || normalized.contains("generation")
+                    ? Color.rgb(233, 154, 46)
+                    : Color.rgb(0, 143, 114);
+            statusDot.setBackground(circleBackground(dotColor));
+        }
     }
 
     private int dp(int value) {

@@ -7,8 +7,10 @@ local.properties
 **/build/
 *.apk
 !download-site/dashai-*.apk
+!download-site/diasco-*.apk
 *.aab
 dashai-*-netlify.zip
+diasco-*-netlify.zip
 keystore.properties
 *.jks
 *.keystore

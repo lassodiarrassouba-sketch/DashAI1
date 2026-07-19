@@ -36,8 +36,8 @@ android {
         applicationId = "com.dashai.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 105
-        versionName = "1.0.5"
+        versionCode = 200
+        versionName = "2.0.0"
     }
 
     signingConfigs {
@@ -74,4 +74,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    implementation("com.google.android.material:material:1.13.0")
 }

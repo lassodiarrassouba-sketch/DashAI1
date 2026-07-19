@@ -1,12 +1,12 @@
 {
-  "name": "DashAI",
-  "short_name": "DashAI",
-  "description": "Assistant IA vocal avec vision camera et generation d'images.",
+  "name": "DIASCO",
+  "short_name": "DIASCO",
+  "description": "Assistant vocal, visuel et créatif avec code, images et création de sites.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f7fafc",
-  "theme_color": "#0f172a",
+  "background_color": "#f3f6f5",
+  "theme_color": "#008f72",
   "orientation": "portrait",
   "icons": [
     {

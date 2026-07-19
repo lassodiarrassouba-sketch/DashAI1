@@ -1,111 +1,44 @@
-# DashAI reconstruit
+# DIASCO
 
-Cette archive contient une reconstruction propre de l'application DashAI :
+DIASCO est un assistant Android natif avec un backend FastAPI sécurisé. Il peut tenir une conversation, répondre à la voix, analyser une photo, générer du code et des formules, créer une image et produire un site web autonome.
 
-- `android/` : application Android native en Java, sans clé API embarquée.
-- `web/` : version PWA installable et deployable sur Netlify.
-- `server/` : backend FastAPI qui appelle l'API IA côté serveur.
-- `docs/` : architecture et notes de migration.
+- `android/` : application Android Java, sans clé API embarquée.
+- `server/` : backend FastAPI qui appelle les services IA côté serveur.
+- `web/` : version PWA installable et publiable sur Netlify.
+- `download-site/` : page de téléchargement direct de l'APK.
 
-L'objectif est de corriger le problème principal de l'ancien APK : l'application ne doit pas se faire passer pour une IA conversationnelle alors qu'elle utilise une FAQ locale + Google Custom Search. Ici, les questions générales passent par un vrai backend IA configurable.
+## Backend local
 
-## 1. Lancer le backend IA
+La clé `OPENAI_API_KEY` doit rester exclusivement dans `server/.env` ou dans les variables secrètes Render.
 
-```bash
+```powershell
 cd server
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -r requirements.txt
-cp .env.example .env
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Modifiez `.env` et mettez votre clé côté serveur uniquement :
+Vérification : `http://127.0.0.1:8000/health` doit répondre `{"status":"ok"}`.
 
-```bash
-OPENAI_API_KEY=sk-proj-votre-cle-ici
-OPENAI_MODEL=gpt-5.4-mini
-```
+## Android
 
-Puis lancez :
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-Test rapide :
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Réponds uniquement OK","locale":"fr-FR"}'
-```
-
-## 2. Ouvrir l'application Android
-
-Ouvrez le dossier `android/` dans Android Studio.
-
-Paramètres principaux :
-
-- `compileSdk = 36`
-- `targetSdk = 36`
-- `minSdk = 23`
-- Android Gradle Plugin `8.13.0`
-
-Build debug :
-
-```bash
+```powershell
 cd android
-gradle :app:assembleDebug
+.\gradlew.bat :app:assembleDebug
 ```
 
-Ou directement depuis Android Studio : **Run**.
+La release utilise l'URL HTTPS configurée dans `android/keystore.properties` et refuse le trafic HTTP. Le debug peut utiliser HTTP pour les tests sur le réseau local.
 
-## 3. Configurer l'URL dans l'application
+Le réveil vocal est fixé à « Dis Diasco ». Sur Android récent, DIASCO utilise un service micro au premier plan avec notification persistante. L'utilisateur doit ouvrir l'application au moins une fois et autoriser le microphone.
 
-Dans l'écran DashAI, renseignez l'URL du backend :
+## Fonctions IA
 
-- Émulateur Android local : `http://10.0.2.2:8000/api/ask`
-- Téléphone réel : utilisez une URL HTTPS publique, par exemple `https://votre-domaine.com/api/ask`
+- Conversation persistante et réponses vocales.
+- Analyse d'une image prise avec la caméra.
+- Code et formules conservés dans un affichage copiable.
+- Génération d'images via `POST /api/image`.
+- Génération d'un site HTML autonome via `POST /api/site`.
 
-Activez **Mode en ligne**, puis appuyez sur **Tester**.
+La génération d'images nécessite un compte API OpenAI actif avec du crédit et une limite de dépenses suffisante. Une erreur `billing_hard_limit_reached` est un blocage de facturation du compte, pas une panne Android.
 
-## 4. Ce que l'application fait hors ligne
+## Distribution
 
-Sans backend, elle répond localement à quelques demandes sûres :
-
-- heure ;
-- date ;
-- batterie ;
-- modèle du téléphone ;
-- calculs simples comme `12 + 5`, `10 / 2`, `7 x 8` ;
-- aide et présentation.
-
-Pour les questions générales, elle indique clairement qu'il faut activer le mode en ligne.
-
-## 5. Sécurité
-
-Ne mettez jamais `OPENAI_API_KEY`, une clé Google ou une autre clé fournisseur dans le code Android. Une APK peut être décompilée, donc toute clé embarquée doit être considérée comme exposée.
-
-## 6. Limite de cette archive
-
-Je fournis ici une reconstruction source propre et modifiable. Je n'ai pas inclus d'APK compilé, car cet environnement ne contient pas le SDK Android/build-tools nécessaires pour produire et signer un binaire installable de manière fiable. Ouvrez `android/` dans Android Studio pour générer l'APK ou l'AAB.
-
-## Correction locale HTTP Android
-
-Cette archive inclut une correction pour l'erreur Android :
-
-```text
-Cleartext HTTP traffic to ... not permitted
-```
-
-Les builds debug autorisent désormais HTTP pour tester un backend local. Les builds release restent configurés pour refuser HTTP ; utilisez HTTPS en production.
-Voir `docs/LOCAL_HTTP_ANDROID.md`.
-
-
-## Version V2 locale debug
-
-Cette archive ajoute un meilleur comportement conversationnel : le client Android envoie le contexte récent au backend, les réponses sont nettoyées pour éviter l'affichage des marqueurs Markdown comme `**texte**`, et les erreurs audio silencieuses ne remplissent plus autant le fil de discussion. Voir `docs/V2_IMPROVEMENTS.md`.
-
-## Version web sans Play Store
-
-DashAI contient maintenant une PWA dans `web/`. Elle peut etre publiee sur Netlify et connectee au backend FastAPI heberge sur Render ou Google Cloud Run. Voir `docs/WEB_NETLIFY_RENDER_DEPLOY.md`.
+La page Netlify se trouve dans `download-site/` et distribue `diasco-2.0.0.apk`. Le backend de production reste hébergé sur Render avec HTTPS.

@@ -1,5 +1,10 @@
 <resources>
-    <color name="dashai_primary">#1F2937</color>
-    <color name="dashai_accent">#2563EB</color>
-    <color name="dashai_bg">#F8FAFC</color>
+    <color name="diasco_ink">#172126</color>
+    <color name="diasco_accent">#008F72</color>
+    <color name="diasco_accent_dark">#006B56</color>
+    <color name="diasco_warm">#E99A2E</color>
+    <color name="diasco_bg">#F3F6F5</color>
+    <color name="diasco_surface">#FFFFFF</color>
+    <color name="diasco_line">#DCE4E1</color>
+    <color name="diasco_muted">#5C6B66</color>
 </resources>

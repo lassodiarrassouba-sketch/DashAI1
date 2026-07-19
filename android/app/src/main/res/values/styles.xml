@@ -1,10 +1,17 @@
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:fontFamily">sans</item>
+    <style name="AppTheme" parent="Theme.Material3.Light.NoActionBar">
+        <item name="fontFamily">sans</item>
+        <item name="colorPrimary">@color/diasco_accent</item>
+        <item name="colorOnPrimary">@color/diasco_surface</item>
+        <item name="colorSecondary">@color/diasco_warm</item>
+        <item name="colorSurface">@color/diasco_surface</item>
+        <item name="colorOnSurface">@color/diasco_ink</item>
+        <item name="colorOutline">@color/diasco_line</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:statusBarColor">@color/dashai_bg</item>
-        <item name="android:navigationBarColor">@color/dashai_bg</item>
-        <item name="android:colorAccent">@color/dashai_accent</item>
+        <item name="android:statusBarColor">@color/diasco_bg</item>
+        <item name="android:navigationBarColor">@color/diasco_surface</item>
+        <item name="android:colorAccent">@color/diasco_accent</item>
+        <item name="android:windowBackground">@color/diasco_bg</item>
         <item name="android:windowNoTitle">true</item>
     </style>
 </resources>

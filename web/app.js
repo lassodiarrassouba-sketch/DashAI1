@@ -27,9 +27,12 @@ const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecogni
 init();
 
 function init() {
-  const savedEndpoint = localStorage.getItem("dashai.backendUrl") || config.defaultBackendUrl || "";
+  const savedEndpoint = localStorage.getItem("diasco.backendUrl")
+    || localStorage.getItem("dashai.backendUrl")
+    || config.defaultBackendUrl
+    || "";
   els.endpointInput.value = savedEndpoint;
-  appendAssistant("Bonjour. Configure le backend HTTPS, puis pose ta question. Sur mobile, tu peux installer cette version web depuis le navigateur.");
+  appendAssistant("Bonjour, je suis DIASCO. Je peux discuter avec vous, analyser une photo, ecrire du code, creer une image ou construire un site web.");
   bindEvents();
   registerServiceWorker();
   updateSpeechSupport();
@@ -81,7 +84,8 @@ function updateSpeechSupport() {
 
 function saveSettings() {
   const endpoint = normalizedEndpoint();
-  localStorage.setItem("dashai.backendUrl", endpoint);
+  localStorage.setItem("diasco.backendUrl", endpoint);
+  localStorage.removeItem("dashai.backendUrl");
   setStatus("Configuration sauvegardee.");
 }
 
@@ -106,6 +110,10 @@ async function testBackend() {
 
 async function ask(question) {
   appendUser(question);
+  if (isWebsiteRequest(question)) {
+    await generateWebsite(question);
+    return;
+  }
   if (isImageRequest(question)) {
     await generateImage(question);
     return;
@@ -122,7 +130,7 @@ async function ask(question) {
     const answer = await postJson(endpoint, {
       question,
       locale: config.defaultLocale || navigator.language || "fr-FR",
-      client: "dashai-web-pwa",
+      client: "diasco-web-pwa",
       history: buildHistory()
     });
     const text = cleanAnswer(answer.answer || "");
@@ -148,10 +156,37 @@ async function generateImage(prompt) {
     const result = await postJson(endpoint.replace(/\/api\/ask\/?$/, "/api/image"), {
       prompt,
       locale: config.defaultLocale || navigator.language || "fr-FR",
-      client: "dashai-web-pwa"
+      client: "diasco-web-pwa"
     });
     const message = cleanAnswer(result.answer || "Voici l'image generee.");
     appendAssistant(message, result.image_base64, result.mime_type);
+    remember(prompt, message);
+    speak(message);
+  } catch (error) {
+    appendError(error.message);
+  } finally {
+    setStatus("Pret.");
+  }
+}
+
+async function generateWebsite(prompt) {
+  const endpoint = normalizedEndpoint();
+  if (!endpoint) {
+    appendError("Le service DIASCO est momentanement indisponible.");
+    return;
+  }
+
+  setStatus("Site : creation en cours...");
+  try {
+    const result = await postJson(endpoint.replace(/\/api\/ask\/?$/, "/api/site"), {
+      prompt,
+      locale: config.defaultLocale || navigator.language || "fr-FR",
+      client: "diasco-web-pwa",
+      history: buildHistory()
+    });
+    const message = cleanAnswer(result.answer || "Votre site est pret.");
+    appendAssistant(message);
+    appendWebsite(result.title || "Site cree par DIASCO", result.html || "");
     remember(prompt, message);
     speak(message);
   } catch (error) {
@@ -182,7 +217,7 @@ async function describeSelectedPhoto() {
       mime_type: file.type || "image/jpeg",
       prompt,
       locale: config.defaultLocale || navigator.language || "fr-FR",
-      client: "dashai-web-pwa",
+      client: "diasco-web-pwa",
       history: buildHistory()
     });
     const text = cleanAnswer(answer.answer || "");
@@ -210,7 +245,11 @@ async function postJson(url, payload) {
   }
   if (!response.ok) {
     const detail = body.detail || `Erreur HTTP ${response.status}`;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    const message = typeof detail === "string" ? detail : JSON.stringify(detail);
+    if (response.status === 402) {
+      throw new Error("La creation d'image est temporairement indisponible. Le proprietaire de DIASCO doit reactiver le credit du service IA.");
+    }
+    throw new Error(message);
   }
   return body;
 }
@@ -305,6 +344,16 @@ function isImageRequest(text) {
   return asksVisual && command;
 }
 
+function isWebsiteRequest(text) {
+  const clean = normalizeText(text);
+  const asksSite = clean.includes("site web")
+    || clean.includes("site internet")
+    || clean.includes("page web")
+    || clean.includes("landing page");
+  const command = /^(genere|cree|construis|fais|developpe|realise|produis)/.test(clean);
+  return asksSite && command;
+}
+
 function normalizedEndpoint() {
   return els.endpointInput.value.trim().replace(/\/api\/askq$/, "/api/ask").replace(/\/api\/ask\/$/, "/api/ask");
 }
@@ -324,10 +373,10 @@ function appendError(text) {
 function appendMessage(type, text, imageBase64, mimeType) {
   const message = document.createElement("div");
   message.className = `message ${type}`;
-  message.textContent = type === "user" ? `Vous : ${text}` : `DashAI : ${text}`;
+  message.textContent = type === "user" ? `Vous : ${text}` : `DIASCO : ${text}`;
   if (imageBase64) {
     const image = document.createElement("img");
-    image.alt = "Image generee par DashAI";
+    image.alt = "Image generee par DIASCO";
     image.src = `data:${mimeType || "image/png"};base64,${imageBase64}`;
     message.appendChild(image);
   }
@@ -335,9 +384,56 @@ function appendMessage(type, text, imageBase64, mimeType) {
   els.messages.scrollTop = els.messages.scrollHeight;
 }
 
+function appendWebsite(title, sourceHtml) {
+  if (!sourceHtml) return;
+
+  const frame = document.createElement("section");
+  frame.className = "site-preview";
+
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  frame.appendChild(heading);
+
+  const preview = document.createElement("iframe");
+  preview.title = `Apercu de ${title}`;
+  preview.setAttribute("sandbox", "allow-scripts");
+  preview.srcdoc = securePreviewHtml(sourceHtml);
+  frame.appendChild(preview);
+
+  const download = document.createElement("button");
+  download.className = "button";
+  download.type = "button";
+  download.textContent = "Telecharger le site";
+  download.addEventListener("click", () => {
+    const blob = new Blob([sourceHtml], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${slugify(title) || "site-diasco"}.html`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  frame.appendChild(download);
+
+  els.messages.appendChild(frame);
+  els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+function securePreviewHtml(sourceHtml) {
+  const policy = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:;\">";
+  if (/<head[\s>]/i.test(sourceHtml)) {
+    return sourceHtml.replace(/<head([^>]*)>/i, `<head$1>${policy}`);
+  }
+  return `${policy}${sourceHtml}`;
+}
+
+function slugify(text) {
+  return normalizeText(text).replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 64);
+}
+
 function remember(question, answer) {
   state.history.push(`Vous : ${question}`);
-  state.history.push(`DashAI : ${answer}`);
+  state.history.push(`DIASCO : ${answer}`);
   while (state.history.length > 18) state.history.shift();
 }
 

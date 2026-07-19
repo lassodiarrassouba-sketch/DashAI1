@@ -30,8 +30,8 @@ public final class LocalAnswerEngine {
             return "Bonjour. Je suis prêt à répondre.";
         }
 
-        if (containsAny(clean, "qui es tu", "presente toi", "tu es quoi", "c'est quoi dashai", "c est quoi dashai")) {
-            return "Je suis DashAI, un assistant vocal Android. Je réponds localement aux questions simples et j’utilise le backend IA quand le mode en ligne est activé.";
+        if (containsAny(clean, "qui es tu", "presente toi", "tu es quoi", "c'est quoi diasco", "c est quoi diasco")) {
+            return "Je suis DIASCO, votre assistant vocal, visuel et créatif. Je peux converser, analyser une photo, écrire du code, créer des images et préparer des sites internet.";
         }
 
         if (containsAny(clean, "aide", "que peux tu faire", "commandes")) {
