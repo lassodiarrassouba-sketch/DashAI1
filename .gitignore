@@ -11,6 +11,7 @@ local.properties
 *.aab
 dashai-*-netlify.zip
 diasco-*-netlify.zip
+diasco-*-netlify-*.zip
 keystore.properties
 *.jks
 *.keystore

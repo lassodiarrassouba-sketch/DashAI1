@@ -1,8 +1,13 @@
 import base64
 import binascii
 import html
+import json
 import os
 import re
+import secrets
+import urllib.error
+import urllib.parse
+import urllib.request
 from functools import lru_cache
 
 from dotenv import load_dotenv
@@ -13,7 +18,7 @@ from openai import OpenAI
 
 load_dotenv()
 
-app = FastAPI(title="DIASCO Backend", version="2.0.0")
+app = FastAPI(title="DIASCO Backend", version="2.1.0")
 
 DEFAULT_CORS_ORIGINS = {
     "http://localhost:5173",
@@ -23,6 +28,9 @@ DEFAULT_CORS_ORIGINS = {
 }
 ALLOWED_IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_IMAGE_BYTES = 7_000_000
+MAX_PROVIDER_RESPONSE_BYTES = 12_000_000
+DEFAULT_CLOUDFLARE_TEXT_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8-fast"
+DEFAULT_CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
 
 SYSTEM_PROMPT = """
 Tu es DIASCO, un assistant personnel francophone, naturel, attentif et créatif.
@@ -193,6 +201,314 @@ def provider_http_exception(exc: Exception, feature: str) -> HTTPException:
     )
 
 
+def provider_chain_http_exception(errors: list[Exception], feature: str) -> HTTPException:
+    """Retourne une erreur utile sans exposer les réponses ni les secrets des fournisseurs."""
+    combined = " ".join(str(error).lower() for error in errors)
+    if "cloudflare_authentication" in combined or "cloudflare_invalid_account" in combined:
+        return HTTPException(
+            status_code=503,
+            detail="Le moteur IA gratuit doit être reconfiguré sur le serveur.",
+        )
+    if "cloudflare_quota" in combined or "cloudflare_rate_limit" in combined:
+        return HTTPException(
+            status_code=429,
+            detail="Le quota gratuit de DIASCO est momentanément atteint. Réessayez plus tard.",
+        )
+    if errors:
+        return provider_http_exception(errors[-1], feature)
+    return HTTPException(status_code=503, detail=f"Aucun moteur IA {feature} n’est configuré.")
+
+
+def cloudflare_is_configured() -> bool:
+    return bool(
+        os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+        and os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+    )
+
+
+def cloudflare_run(model: str, payload: dict, timeout: int = 90) -> object:
+    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+    api_token = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
+    if not account_id or not api_token:
+        raise RuntimeError("cloudflare_not_configured")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{6,128}", account_id):
+        raise RuntimeError("cloudflare_invalid_account")
+    if not model.startswith("@cf/"):
+        raise RuntimeError("cloudflare_invalid_model")
+
+    encoded_account = urllib.parse.quote(account_id, safe="")
+    encoded_model = urllib.parse.quote(model, safe="@/-_.")
+    url = f"https://api.cloudflare.com/client/v4/accounts/{encoded_account}/ai/run/{encoded_model}"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw_response = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        error_code = None
+        try:
+            error_payload = json.loads(exc.read(50_000).decode("utf-8"))
+            errors = error_payload.get("errors", []) if isinstance(error_payload, dict) else []
+            error_code = errors[0].get("code") if errors and isinstance(errors[0], dict) else None
+        except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+            pass
+        if error_code == 5016:
+            raise RuntimeError("cloudflare_model_terms") from exc
+        if exc.code in (401, 403):
+            raise RuntimeError("cloudflare_authentication") from exc
+        if exc.code == 429:
+            raise RuntimeError("cloudflare_rate_limit") from exc
+        if exc.code == 402:
+            raise RuntimeError("cloudflare_quota") from exc
+        raise RuntimeError(f"cloudflare_http_{exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError("cloudflare_unreachable") from exc
+
+    if len(raw_response) > MAX_PROVIDER_RESPONSE_BYTES:
+        raise RuntimeError("cloudflare_response_too_large")
+    try:
+        response_payload = json.loads(raw_response.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("cloudflare_invalid_response") from exc
+    if not isinstance(response_payload, dict) or response_payload.get("success") is False:
+        raise RuntimeError("cloudflare_failed_response")
+    return response_payload.get("result", response_payload)
+
+
+def generate_cloudflare_text(prompt: str, max_output_tokens: int) -> str:
+    model = os.getenv("CLOUDFLARE_TEXT_MODEL", DEFAULT_CLOUDFLARE_TEXT_MODEL).strip()
+    result = cloudflare_run(
+        model,
+        {
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max(64, min(max_output_tokens, 8192)),
+            "temperature": 0.4,
+        },
+    )
+    if isinstance(result, dict):
+        answer = result.get("response", "")
+    else:
+        answer = result if isinstance(result, str) else ""
+    if not isinstance(answer, str) or not answer.strip():
+        raise RuntimeError("cloudflare_missing_text")
+    return answer.strip()
+
+
+def generate_openai_text(prompt: str, model: str, max_output_tokens: int) -> str:
+    response = get_openai_client().responses.create(
+        model=model,
+        input=prompt,
+        max_output_tokens=max_output_tokens,
+    )
+    answer = getattr(response, "output_text", "") or ""
+    if not answer.strip():
+        raise RuntimeError("openai_missing_text")
+    return answer.strip()
+
+
+def generate_text_with_fallback(prompt: str, model: str, max_output_tokens: int, feature: str) -> str:
+    provider = os.getenv("AI_PROVIDER", "auto").strip().lower()
+    if provider not in {"auto", "cloudflare", "openai"}:
+        provider = "auto"
+    errors: list[Exception] = []
+
+    if provider in {"auto", "cloudflare"}:
+        if cloudflare_is_configured():
+            try:
+                return generate_cloudflare_text(prompt, max_output_tokens)
+            except Exception as exc:
+                errors.append(exc)
+        elif provider == "cloudflare":
+            raise HTTPException(status_code=503, detail="Le moteur IA gratuit n’est pas encore configuré.")
+
+    if provider in {"auto", "openai"}:
+        try:
+            return generate_openai_text(prompt, model, max_output_tokens)
+        except Exception as exc:
+            errors.append(exc)
+
+    raise provider_chain_http_exception(errors, feature)
+
+
+def detected_image_mime_type(decoded: bytes) -> str:
+    if decoded.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if decoded.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if decoded.startswith(b"RIFF") and decoded[8:12] == b"WEBP":
+        return "image/webp"
+    raise RuntimeError("cloudflare_invalid_image")
+
+
+def generate_cloudflare_image(prompt: str) -> tuple[str, str, str | None]:
+    model = os.getenv("CLOUDFLARE_IMAGE_MODEL", DEFAULT_CLOUDFLARE_IMAGE_MODEL).strip()
+    try:
+        steps = max(1, min(int(os.getenv("CLOUDFLARE_IMAGE_STEPS", "4")), 8))
+    except ValueError:
+        steps = 4
+    result = cloudflare_run(
+        model,
+        {
+            "prompt": prompt[:2048],
+            "steps": steps,
+            "seed": secrets.randbelow(2_147_483_647),
+        },
+    )
+    image_base64 = result.get("image") if isinstance(result, dict) else None
+    if not isinstance(image_base64, str) or not image_base64:
+        raise RuntimeError("cloudflare_missing_image")
+    try:
+        decoded = base64.b64decode(image_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise RuntimeError("cloudflare_invalid_base64") from exc
+    if not decoded or len(decoded) > MAX_IMAGE_BYTES:
+        raise RuntimeError("cloudflare_invalid_image_size")
+    return image_base64, detected_image_mime_type(decoded), None
+
+
+def generate_openai_image(prompt: str) -> tuple[str, str, str | None]:
+    model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2").strip()
+    size = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024").strip()
+    quality = os.getenv("OPENAI_IMAGE_QUALITY", "low").strip()
+    output_format = os.getenv("OPENAI_IMAGE_FORMAT", "png").strip().lower()
+    response = get_openai_client().images.generate(
+        model=model,
+        prompt=prompt,
+        size=size,
+        quality=quality,
+        output_format=output_format,
+        n=1,
+    )
+    data = response.data or []
+    first = data[0] if data else None
+    image_base64 = getattr(first, "b64_json", None) if first is not None else None
+    revised_prompt = getattr(first, "revised_prompt", None) if first is not None else None
+    if not image_base64:
+        raise RuntimeError("openai_missing_image")
+    mime_type = f"image/{'jpeg' if output_format == 'jpg' else output_format}"
+    return image_base64, mime_type, revised_prompt
+
+
+def generate_image_with_fallback(prompt: str) -> tuple[str, str, str | None]:
+    provider = os.getenv("IMAGE_PROVIDER", "auto").strip().lower()
+    if provider not in {"auto", "cloudflare", "openai"}:
+        provider = "auto"
+    errors: list[Exception] = []
+
+    if provider in {"auto", "cloudflare"}:
+        if cloudflare_is_configured():
+            try:
+                return generate_cloudflare_image(prompt)
+            except Exception as exc:
+                errors.append(exc)
+        elif provider == "cloudflare":
+            raise HTTPException(status_code=503, detail="Le moteur d’images gratuit n’est pas encore configuré.")
+
+    if provider in {"auto", "openai"}:
+        try:
+            return generate_openai_image(prompt)
+        except Exception as exc:
+            errors.append(exc)
+
+    raise provider_chain_http_exception(errors, "d’image")
+
+
+def generate_cloudflare_vision(
+    prompt: str,
+    image_base64: str,
+    mime_type: str,
+    max_output_tokens: int,
+) -> str:
+    model = os.getenv("CLOUDFLARE_VISION_MODEL", "@cf/meta/llama-3.2-11b-vision-instruct").strip()
+    result = cloudflare_run(
+        model,
+        {
+            "messages": [{"role": "user", "content": prompt}],
+            "image": f"data:{mime_type};base64,{image_base64}",
+            "max_tokens": max(64, min(max_output_tokens, 2048)),
+            "temperature": 0.3,
+        },
+    )
+    if isinstance(result, dict):
+        answer = result.get("response", "")
+    else:
+        answer = result if isinstance(result, str) else ""
+    if not isinstance(answer, str) or not answer.strip():
+        raise RuntimeError("cloudflare_missing_vision_text")
+    return answer.strip()
+
+
+def generate_openai_vision(
+    prompt: str,
+    image_base64: str,
+    mime_type: str,
+    model: str,
+    max_output_tokens: int,
+) -> str:
+    response = get_openai_client().responses.create(
+        model=model,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {"type": "input_image", "image_url": f"data:{mime_type};base64,{image_base64}"},
+                ],
+            }
+        ],
+        max_output_tokens=max_output_tokens,
+    )
+    answer = getattr(response, "output_text", "") or ""
+    if not answer.strip():
+        raise RuntimeError("openai_missing_vision_text")
+    return answer.strip()
+
+
+def generate_vision_with_fallback(
+    prompt: str,
+    image_base64: str,
+    mime_type: str,
+    model: str,
+    max_output_tokens: int,
+) -> str:
+    provider = os.getenv("VISION_PROVIDER", "auto").strip().lower()
+    if provider not in {"auto", "cloudflare", "openai"}:
+        provider = "auto"
+    errors: list[Exception] = []
+
+    if provider in {"auto", "cloudflare"}:
+        if cloudflare_is_configured():
+            try:
+                return generate_cloudflare_vision(prompt, image_base64, mime_type, max_output_tokens)
+            except Exception as exc:
+                errors.append(exc)
+        elif provider == "cloudflare":
+            raise HTTPException(status_code=503, detail="Le moteur visuel gratuit n’est pas encore configuré.")
+
+    if provider in {"auto", "openai"}:
+        try:
+            return generate_openai_vision(prompt, image_base64, mime_type, model, max_output_tokens)
+        except Exception as exc:
+            errors.append(exc)
+
+    combined = " ".join(str(error).lower() for error in errors)
+    if "cloudflare_model_terms" in combined:
+        raise HTTPException(
+            status_code=503,
+            detail="Le modèle visuel gratuit attend l’acceptation de sa licence dans Cloudflare.",
+        )
+    raise provider_chain_http_exception(errors, "de vision")
+
+
 def extract_standalone_html(raw: str) -> str:
     cleaned = raw.strip()
     cleaned = re.sub(r"(?i)^\s*```(?:html)?\s*", "", cleaned)
@@ -266,19 +582,9 @@ def ask(payload: AskRequest) -> AskResponse:
         "ne réponds pas que tu ne sais pas le sujet. Déduis le sujet du contexte récent quand il est suffisant."
     )
 
-    try:
-        response = get_openai_client().responses.create(
-            model=model,
-            input=prompt,
-            max_output_tokens=max_output_tokens,
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        raise provider_http_exception(exc, "conversationnel") from exc
-
+    raw_answer = generate_text_with_fallback(prompt, model, max_output_tokens, "conversationnel")
     answer = clean_answer(
-        getattr(response, "output_text", "") or "",
+        raw_answer,
         preserve_format=wants_structured_answer(payload.question),
     )
     if not answer:
@@ -304,26 +610,14 @@ def vision(payload: VisionRequest) -> AskResponse:
         f"Demande de l'utilisateur : {user_prompt}"
     )
 
-    try:
-        response = get_openai_client().responses.create(
-            model=model,
-            input=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": prompt},
-                        {"type": "input_image", "image_url": f"data:{mime_type};base64,{image_base64}"},
-                    ],
-                }
-            ],
-            max_output_tokens=max_output_tokens,
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        raise provider_http_exception(exc, "de vision") from exc
-
-    answer = clean_answer(getattr(response, "output_text", "") or "")
+    raw_answer = generate_vision_with_fallback(
+        prompt,
+        image_base64,
+        mime_type,
+        model,
+        max_output_tokens,
+    )
+    answer = clean_answer(raw_answer)
     if not answer:
         raise HTTPException(status_code=502, detail="Le fournisseur IA n'a pas renvoyé de description exploitable.")
     return AskResponse(answer=answer)
@@ -331,37 +625,11 @@ def vision(payload: VisionRequest) -> AskResponse:
 
 @app.post("/api/image", response_model=ImageResponse)
 def image(payload: ImageRequest) -> ImageResponse:
-    model = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2").strip()
-    size = os.getenv("OPENAI_IMAGE_SIZE", "1024x1024").strip()
-    quality = os.getenv("OPENAI_IMAGE_QUALITY", "low").strip()
-    output_format = os.getenv("OPENAI_IMAGE_FORMAT", "png").strip().lower()
     prompt = (
         "Génère une image claire, utile et adaptée à une application mobile francophone.\n"
         f"Demande de l'utilisateur : {payload.prompt.strip()}"
     )
-
-    try:
-        response = get_openai_client().images.generate(
-            model=model,
-            prompt=prompt,
-            size=size,
-            quality=quality,
-            output_format=output_format,
-            n=1,
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        raise provider_http_exception(exc, "d’image") from exc
-
-    data = response.data or []
-    first = data[0] if data else None
-    image_base64 = getattr(first, "b64_json", None) if first is not None else None
-    revised_prompt = getattr(first, "revised_prompt", None) if first is not None else None
-    if not image_base64:
-        raise HTTPException(status_code=502, detail="Le fournisseur IA n'a pas renvoyé d'image exploitable.")
-
-    mime_type = f"image/{'jpeg' if output_format == 'jpg' else output_format}"
+    image_base64, mime_type, revised_prompt = generate_image_with_fallback(prompt)
     return ImageResponse(
         answer="Voici l’image générée.",
         image_base64=image_base64,
@@ -396,18 +664,8 @@ Demande de l'utilisateur :
 {payload.prompt.strip()}
 """.strip()
 
-    try:
-        response = get_openai_client().responses.create(
-            model=model,
-            input=prompt,
-            max_output_tokens=max_output_tokens,
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        raise provider_http_exception(exc, "de création de site") from exc
-
-    document = extract_standalone_html(getattr(response, "output_text", "") or "")
+    raw_document = generate_text_with_fallback(prompt, model, max_output_tokens, "de création de site")
+    document = extract_standalone_html(raw_document)
     return SiteResponse(
         answer="Le site est prêt. Vous pouvez le prévisualiser et télécharger le fichier HTML.",
         title=title_from_html(document),

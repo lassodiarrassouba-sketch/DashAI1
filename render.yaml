@@ -16,6 +16,24 @@ services:
         value: gpt-image-2
       - key: OPENAI_SITE_MODEL
         value: gpt-5.4-mini
+      - key: AI_PROVIDER
+        value: auto
+      - key: IMAGE_PROVIDER
+        value: auto
+      - key: VISION_PROVIDER
+        value: auto
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_TEXT_MODEL
+        value: "@cf/meta/llama-3.1-8b-instruct-fp8-fast"
+      - key: CLOUDFLARE_IMAGE_MODEL
+        value: "@cf/black-forest-labs/flux-1-schnell"
+      - key: CLOUDFLARE_IMAGE_STEPS
+        value: "4"
+      - key: CLOUDFLARE_VISION_MODEL
+        value: "@cf/meta/llama-3.2-11b-vision-instruct"
       - key: MAX_OUTPUT_TOKENS
         value: "1400"
       - key: SITE_MAX_OUTPUT_TOKENS

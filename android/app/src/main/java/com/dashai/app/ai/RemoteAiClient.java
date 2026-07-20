@@ -80,7 +80,7 @@ public final class RemoteAiClient {
                 body.put("history", history.trim());
             }
 
-            return postForAnswer(endpoint, body, allowHttp);
+            return postForAnswer(endpoint, body, allowHttp, "conversation");
         } catch (JSONException ex) {
             return "Demande backend illisible : " + ex.getMessage();
         }
@@ -113,7 +113,7 @@ public final class RemoteAiClient {
                 body.put("history", history.trim());
             }
 
-            return postForAnswer(visionEndpoint, body, allowHttp);
+            return postForAnswer(visionEndpoint, body, allowHttp, "vision");
         } catch (JSONException ex) {
             return "Demande image illisible : " + ex.getMessage();
         }
@@ -137,7 +137,7 @@ public final class RemoteAiClient {
                 return new ImageResult(result.error, null, null);
             }
             if (result.code < 200 || result.code >= 300) {
-                return new ImageResult(formatBackendError(result.code, result.raw), null, null);
+                return new ImageResult(formatBackendError(result.code, result.raw, "image"), null, null);
             }
 
             JSONObject root = new JSONObject(result.raw);
@@ -178,7 +178,7 @@ public final class RemoteAiClient {
                 return new SiteResult(result.error, null, null);
             }
             if (result.code < 200 || result.code >= 300) {
-                return new SiteResult(formatBackendError(result.code, result.raw), null, null);
+                return new SiteResult(formatBackendError(result.code, result.raw, "site"), null, null);
             }
 
             JSONObject root = new JSONObject(result.raw);
@@ -194,11 +194,11 @@ public final class RemoteAiClient {
         }
     }
 
-    private String postForAnswer(String endpoint, JSONObject body, boolean allowHttp) {
+    private String postForAnswer(String endpoint, JSONObject body, boolean allowHttp, String feature) {
         PostResult result = postJson(endpoint, body, allowHttp);
         if (result.error != null) return result.error;
         if (result.code < 200 || result.code >= 300) {
-            return formatBackendError(result.code, result.raw);
+            return formatBackendError(result.code, result.raw, feature);
         }
 
         try {
@@ -312,10 +312,18 @@ public final class RemoteAiClient {
         return raw.length() > 300 ? raw.substring(0, 300) + "…" : raw;
     }
 
-    private String formatBackendError(int code, String raw) {
+    private String formatBackendError(int code, String raw, String feature) {
         if (code == 402) {
-            return "La création d’image est temporairement indisponible. "
-                    + "Le propriétaire de DIASCO doit réactiver le crédit du service IA.";
+            if ("image".equals(feature)) {
+                return "La création d’image est temporairement indisponible car le moteur IA a atteint sa limite.";
+            }
+            if ("site".equals(feature)) {
+                return "La création de site est temporairement indisponible car le moteur IA a atteint sa limite.";
+            }
+            if ("vision".equals(feature)) {
+                return "L’analyse de la caméra est temporairement indisponible car le moteur IA a atteint sa limite.";
+            }
+            return "La conversation IA est temporairement indisponible car le moteur a atteint sa limite.";
         }
         if (code == 429) {
             return "Le service IA reçoit trop de demandes. Réessayez dans quelques instants.";

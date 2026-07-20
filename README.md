@@ -37,8 +37,10 @@ Le réveil vocal est fixé à « Dis Diasco ». Sur Android récent, DIASCO util
 - Génération d'images via `POST /api/image`.
 - Génération d'un site HTML autonome via `POST /api/site`.
 
-La génération d'images nécessite un compte API OpenAI actif avec du crédit et une limite de dépenses suffisante. Une erreur `billing_hard_limit_reached` est un blocage de facturation du compte, pas une panne Android.
+Le backend peut utiliser Cloudflare Workers AI en priorité pour la conversation, le code, les sites, la caméra et les images. Renseignez uniquement `CLOUDFLARE_ACCOUNT_ID` et `CLOUDFLARE_API_TOKEN` dans les variables secrètes Render. Le mode `auto` bascule ensuite vers Cloudflare sans modifier ni republier l'APK, et conserve OpenAI comme secours.
+
+Cloudflare accorde un quota gratuit quotidien. Une fois ce quota atteint, DIASCO affiche une indisponibilité temporaire jusqu'à sa réinitialisation. Le modèle visuel Llama demande une acceptation unique de la licence Meta depuis le compte Cloudflare.
 
 ## Distribution
 
-La page Netlify se trouve dans `download-site/` et distribue `diasco-2.0.0.apk`. Le backend de production reste hébergé sur Render avec HTTPS.
+La page Netlify se trouve dans `download-site/` et distribue `diasco-2.1.0.apk`. Le backend de production reste hébergé sur Render avec HTTPS.
