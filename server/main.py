@@ -432,7 +432,7 @@ def generate_cloudflare_vision(
     result = cloudflare_run(
         model,
         {
-            "messages": [{"role": "user", "content": prompt}],
+            "prompt": prompt,
             "image": f"data:{mime_type};base64,{image_base64}",
             "max_tokens": max(64, min(max_output_tokens, 2048)),
             "temperature": 0.3,

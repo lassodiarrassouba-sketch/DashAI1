@@ -29,6 +29,19 @@ class CloudflareProviderTests(unittest.TestCase):
         self.assertEqual(mime_type, "image/jpeg")
         self.assertIsNone(revised_prompt)
 
+    @patch("main.cloudflare_run")
+    def test_cloudflare_vision_uses_rest_payload(self, run_mock):
+        run_mock.return_value = {"response": "La couleur principale est bleue."}
+
+        answer = main.generate_cloudflare_vision("Décris cette image.", "aGVsbG8=", "image/png", 300)
+
+        self.assertEqual(answer, "La couleur principale est bleue.")
+        payload = run_mock.call_args.args[1]
+        self.assertEqual(payload["prompt"], "Décris cette image.")
+        self.assertEqual(payload["image"], "data:image/png;base64,aGVsbG8=")
+        self.assertEqual(payload["max_tokens"], 300)
+        self.assertNotIn("messages", payload)
+
     @patch("main.generate_openai_text")
     @patch("main.generate_cloudflare_text")
     def test_auto_provider_prefers_cloudflare(self, cloudflare_mock, openai_mock):
