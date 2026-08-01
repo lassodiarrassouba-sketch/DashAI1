@@ -1786,7 +1786,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private boolean showDeveloperControls() {
-        return isDebugBuild();
+        return false;
     }
 
     private boolean isOnlineModeForced() {

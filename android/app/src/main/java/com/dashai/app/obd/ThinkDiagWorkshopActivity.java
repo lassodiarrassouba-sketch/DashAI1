@@ -450,11 +450,12 @@ public final class ThinkDiagWorkshopActivity extends AppCompatActivity {
     }
 
     private String vehicleLabel() {
-        String make = profilePreferences.getString(KEY_MAKE, "Mercedes");
-        String model = profilePreferences.getString(KEY_MODEL, "C250");
-        String year = profilePreferences.getString(KEY_YEAR, "2012");
-        String fuel = profilePreferences.getString(KEY_FUEL, "Essence");
-        return ObdReportTools.normalize(make + " " + model + " · " + year + " · " + fuel);
+        return ObdReportTools.vehicleLabel(
+                profilePreferences.getString(KEY_MAKE, ""),
+                profilePreferences.getString(KEY_MODEL, ""),
+                profilePreferences.getString(KEY_YEAR, ""),
+                profilePreferences.getString(KEY_FUEL, "")
+        );
     }
 
     private WorkshopOperationPolicy.Checklist emptyChecklist() {

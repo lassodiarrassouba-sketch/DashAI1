@@ -56,10 +56,7 @@ import java.util.concurrent.Executors;
 public final class ThinkDiagActivity extends AppCompatActivity {
     private static final int REQUEST_OPEN_REPORT = 701;
     private static final String THINKDIAG_PACKAGE = "com.us.thinkdiag.plus";
-    private static final String APP_PREFS = "dashai_prefs";
     private static final String PROFILE_PREFS = "diasco_obd_profile";
-    private static final String KEY_ENDPOINT = "backend_endpoint";
-    private static final String KEY_ONLINE = "online_enabled";
     private static final String KEY_NOTICE_SEEN = "notice_seen";
     private static final String KEY_MAKE = "make";
     private static final String KEY_MODEL = "model";
@@ -72,7 +69,6 @@ public final class ThinkDiagActivity extends AppCompatActivity {
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
-    private SharedPreferences appPreferences;
     private SharedPreferences profilePreferences;
     private EditText makeInput;
     private EditText modelInput;
@@ -105,7 +101,6 @@ public final class ThinkDiagActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        appPreferences = getSharedPreferences(APP_PREFS, MODE_PRIVATE);
         profilePreferences = getSharedPreferences(PROFILE_PREFS, MODE_PRIVATE);
         buildUi();
         initTextToSpeech();
@@ -167,10 +162,10 @@ public final class ThinkDiagActivity extends AppCompatActivity {
         profileContent.setOrientation(LinearLayout.VERTICAL);
         profileContent.setPadding(dp(12), dp(8), dp(12), dp(12));
 
-        makeInput = profileInput("Marque", profilePreferences.getString(KEY_MAKE, "Mercedes"));
-        modelInput = profileInput("Modèle", profilePreferences.getString(KEY_MODEL, "C250"));
-        yearInput = profileInput("Année", profilePreferences.getString(KEY_YEAR, "2012"));
-        fuelInput = profileInput("Carburant", profilePreferences.getString(KEY_FUEL, "Essence"));
+        makeInput = profileInput("Marque", profilePreferences.getString(KEY_MAKE, ""));
+        modelInput = profileInput("Modèle", profilePreferences.getString(KEY_MODEL, ""));
+        yearInput = profileInput("Année", profilePreferences.getString(KEY_YEAR, ""));
+        fuelInput = profileInput("Énergie", profilePreferences.getString(KEY_FUEL, ""));
 
         LinearLayout rowOne = new LinearLayout(this);
         rowOne.setOrientation(LinearLayout.HORIZONTAL);
@@ -629,15 +624,16 @@ public final class ThinkDiagActivity extends AppCompatActivity {
     }
 
     private String vehicleLabel() {
-        return ObdReportTools.normalize(makeInput.getText() + " " + modelInput.getText()
-                + " " + yearInput.getText() + " " + fuelInput.getText());
+        return ObdReportTools.vehicleLabel(
+                makeInput.getText().toString(),
+                modelInput.getText().toString(),
+                yearInput.getText().toString(),
+                fuelInput.getText().toString()
+        );
     }
 
     private String currentEndpoint() {
-        String defaultEndpoint = getString(R.string.default_backend_endpoint).trim();
-        String endpoint = isDebugBuild()
-                ? appPreferences.getString(KEY_ENDPOINT, defaultEndpoint)
-                : defaultEndpoint;
+        String endpoint = getString(R.string.default_backend_endpoint).trim();
         if (endpoint == null) return "";
         String clean = endpoint.trim();
         if (clean.endsWith("/api/askq")) clean = clean.substring(0, clean.length() - 1);
@@ -646,7 +642,7 @@ public final class ThinkDiagActivity extends AppCompatActivity {
     }
 
     private boolean isOnlineModeEnabled() {
-        return !isDebugBuild() || appPreferences.getBoolean(KEY_ONLINE, true);
+        return true;
     }
 
     private boolean isDebugBuild() {

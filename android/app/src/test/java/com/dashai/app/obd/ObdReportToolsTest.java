@@ -61,4 +61,24 @@ public final class ObdReportToolsTest {
                 ObdReportTools.extractFirstAllowedThinkCarUrl(shared)
         );
     }
+
+    @Test
+    public void emptyVehicleProfileUsesNeutralLabel() {
+        assertEquals(
+                "Véhicule non renseigné",
+                ObdReportTools.vehicleLabel("", "", "", "")
+        );
+    }
+
+    @Test
+    public void vehicleProfileAcceptsAnyMakeAndEnergy() {
+        assertEquals(
+                "Toyota · Hilux · 2021 · Diesel",
+                ObdReportTools.vehicleLabel("Toyota", "Hilux", "2021", "Diesel")
+        );
+        assertEquals(
+                "Model Y · Électrique",
+                ObdReportTools.vehicleLabel("", "Model Y", "", "Électrique")
+        );
+    }
 }
