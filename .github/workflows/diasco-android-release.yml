@@ -1,6 +1,12 @@
 name: DIASCO Android release
 
 on:
+  push:
+    branches:
+      - codex/diasco-thinkdiag
+    paths:
+      - "android/**"
+      - ".github/workflows/diasco-android-release.yml"
   workflow_dispatch:
 
 permissions:
