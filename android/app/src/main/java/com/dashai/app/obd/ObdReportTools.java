@@ -50,7 +50,15 @@ public final class ObdReportTools {
 
     public static String codesLabel(List<String> codes) {
         if (codes == null || codes.isEmpty()) return "Aucun code OBD standard repéré dans le texte.";
-        return String.join(", ", codes);
+        StringBuilder label = new StringBuilder();
+        for (String code : codes) {
+            if (code == null || code.trim().isEmpty()) continue;
+            if (label.length() > 0) label.append(", ");
+            label.append(code.trim());
+        }
+        return label.length() == 0
+                ? "Aucun code OBD standard repéré dans le texte."
+                : label.toString();
     }
 
     public static String detectSeverity(String reportText, List<String> codes) {
