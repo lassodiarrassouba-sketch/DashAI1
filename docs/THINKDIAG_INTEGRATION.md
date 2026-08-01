@@ -4,7 +4,7 @@
 
 Cette extension ajoute l'analyse des diagnostics automobiles à DIASCO sans modifier les fonctions déjà présentes dans l'application principale : conversation, réveil vocal, caméra, génération d'images, création de sites et mémoire de conversation.
 
-L'écran automobile est une activité Android séparée nommée **DIASCO Auto**. Il apparaît comme une deuxième icône de lancement, tout en restant dans la même application et le même APK.
+L'écran automobile est une activité Android séparée nommée **DIASCO Auto**. Dans la version finale signée, il apparaît comme une deuxième icône de lancement, tout en restant dans la même application et le même APK.
 
 ## Architecture retenue
 
@@ -36,6 +36,7 @@ Pour un PDF, les premières pages sont rendues localement par Android puis lues 
 - les domaines de rapports distants sont limités aux domaines officiels ThinkCar configurés dans le code ;
 - les téléchargements ont une limite de taille et un nombre de redirections limité ;
 - le rapport est traité comme une donnée non fiable : toute instruction contenue dans le rapport est ignorée par le prompt d'analyse ;
+- un rapport peut contenir le VIN, le kilométrage et les défauts du véhicule ; les extraits nécessaires sont envoyés au backend DIASCO lorsque l'analyse en ligne est utilisée ;
 - l'historique automobile est conservé uniquement dans les préférences locales de l'appareil ;
 - aucune fonction d'effacement de DTC, de codage ECU ou de commande d'actionneur n'est implémentée.
 
@@ -58,10 +59,12 @@ L'analyse automatique débute dès que le rapport est partagé vers DIASCO Auto.
 
 ```powershell
 cd android
-.\gradlew.bat :app:assembleDebug
+.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
 ```
 
-Installer ensuite l'APK debug sur l'autoradio Android 13. Les deux entrées suivantes doivent apparaître :
+L'APK debug porte un suffixe d'application distinct. Il peut donc être installé à côté de la version DIASCO déjà signée, sans désinstaller l'application actuelle ni effacer ses données.
+
+Après installation sur l'autoradio Android 13, deux entrées de test apparaissent dans ce nouvel APK :
 
 - DIASCO ;
 - DIASCO Auto.
