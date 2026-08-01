@@ -30,7 +30,7 @@
         android:supportsRtl="true">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".DiascoHomeActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -39,15 +39,15 @@
         </activity>
 
         <activity
+            android:name=".MainActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".obd.ThinkDiagActivity"
             android:exported="true"
             android:grantUriPermissions="true"
             android:label="DIASCO Auto"
             android:launchMode="singleTop">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -68,13 +68,8 @@
 
         <activity
             android:name=".obd.ThinkDiagWorkshopActivity"
-            android:exported="true"
-            android:label="DIASCO Atelier">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:exported="false"
+            android:label="DIASCO Atelier" />
 
         <activity
             android:name=".SitePreviewActivity"
