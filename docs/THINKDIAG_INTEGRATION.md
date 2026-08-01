@@ -66,7 +66,7 @@ L'APK debug porte un suffixe d'application distinct. Il peut donc être install�
 
 Après installation sur l'autoradio Android 13, deux entrées de test apparaissent dans ce nouvel APK :
 
-- DIASCO ;
+- DIASCO Test ;
 - DIASCO Auto.
 
 Vérifier que les fonctions existantes de DIASCO sont inchangées, puis partager un rapport ThinkDiag+ vers DIASCO Auto.
