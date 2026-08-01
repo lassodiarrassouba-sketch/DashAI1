@@ -1,5 +1,3 @@
 <resources>
     <string name="app_name">DIASCO</string>
-    <string name="wake_notification_channel">Réveil vocal DIASCO</string>
-    <string name="wake_notification_title">DIASCO écoute</string>
 </resources>

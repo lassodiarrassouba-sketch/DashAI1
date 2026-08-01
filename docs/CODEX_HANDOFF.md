@@ -20,7 +20,7 @@ Android affiche une seule icône de test. L’accueil `DiascoHomeActivity` ouvre
 - **Diagnostic Auto** ;
 - **Atelier ThinkDiag**.
 
-Les fonctions historiques de DIASCO n’ont pas été supprimées : conversation, réveil vocal « Dis Diasco », empreinte vocale, caméra, analyse d’image, génération d’images, création de sites et mémoire de conversation.
+Les fonctions actives de DIASCO sont conservées : conversation, dictée manuelle, synthèse vocale, caméra, analyse d’image, génération d’images, création de sites et mémoire de conversation. Le réveil vocal et l’empreinte vocale ont été retirés à la demande du propriétaire du projet.
 
 ### Diagnostic Auto
 
@@ -92,7 +92,7 @@ Le prochain changement poussé sur la branche Codex doit relancer la même valid
 - Vérifier qu’une seule nouvelle icône apparaît.
 - Tester l’ouverture des trois espaces.
 - Vérifier les permissions microphone, notifications et fichiers.
-- Vérifier que la caméra et le réveil vocal existants fonctionnent toujours.
+- Vérifier que la caméra et la dictée manuelle fonctionnent toujours.
 
 ### Étape 2 — Essai ThinkDiag réel
 

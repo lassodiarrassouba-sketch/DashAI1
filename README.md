@@ -27,7 +27,7 @@ cd android
 
 La release utilise l'URL HTTPS configurée dans `android/keystore.properties` et refuse le trafic HTTP. Le debug peut utiliser HTTP pour les tests sur le réseau local.
 
-Le réveil vocal est fixé à « Dis Diasco ». Sur Android récent, DIASCO utilise un service micro au premier plan avec notification persistante. L'utilisateur doit ouvrir l'application au moins une fois et autoriser le microphone.
+La saisie vocale est manuelle : DIASCO n’écoute pas en arrière-plan. L’utilisateur appuie sur le bouton micro et autorise le microphone pour dicter une question.
 
 ## Fonctions IA
 

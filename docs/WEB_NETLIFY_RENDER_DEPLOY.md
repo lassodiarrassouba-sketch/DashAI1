@@ -163,9 +163,9 @@ Cloud Run est robuste, mais Google Cloud demande souvent un compte de facturatio
 
 ## 7. Limites de la PWA
 
-- Le reveil vocal fonctionne seulement quand la page est ouverte et que le navigateur autorise le micro.
+- La version Web ne réalise aucune écoute vocale en arrière-plan.
 - iOS et certains navigateurs limitent l'ecoute vocale continue.
-- L'empreinte vocale locale avancee reste meilleure dans l'app Android native.
+- La dictée vocale manuelle reste disponible dans l’app Android native.
 - Une API publique peut consommer des credits IA. Ajoute des limites, de l'authentification ou un quota avant une diffusion large.
 
 ## 8. Fichiers ajoutes

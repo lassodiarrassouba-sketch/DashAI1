@@ -72,7 +72,7 @@ public final class DiascoHomeActivity extends AppCompatActivity {
 
         root.addView(moduleCard(
                 "Assistant DIASCO",
-                "Conversation, réveil vocal, caméra, génération d’images, code et création de sites.",
+                "Conversation, caméra, génération d’images, code et création de sites.",
                 "Ouvrir l’assistant",
                 R.drawable.ic_sparkles,
                 true,

@@ -18,13 +18,13 @@ DashAI peut traiter les données suivantes afin de fournir ses fonctions d'assis
 - transcription des questions dictées ;
 - photos choisies par l'utilisateur pour analyse ;
 - préférences locales de l'application ;
-- empreinte vocale locale servant à limiter le réveil vocal à l'utilisateur.
+- texte reconnu lors d’une dictée lancée manuellement par l’utilisateur.
 
 ## Utilisation des données
 
 Les questions et photos envoyées volontairement par l'utilisateur peuvent être transmises au backend DashAI afin de générer une réponse IA.
 
-L'empreinte vocale est stockée localement sur l'appareil et n'est pas envoyée au backend.
+DIASCO ne crée ni ne stocke d’empreinte vocale. Le microphone n’est utilisé qu’après un appui manuel sur son bouton.
 
 ## Conservation
 
@@ -47,4 +47,3 @@ L'utilisateur peut demander la suppression des données éventuellement conserv�
 ## Enfants
 
 DashAI n'est pas destinée aux enfants et ne doit pas être présentée comme une application familiale sans vérification complète des règles Google Play Families.
-

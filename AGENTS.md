@@ -12,13 +12,13 @@ Le nom public actuellement enregistré dans le code est **DIASCO**. La version A
 
 Une seule icône Android ouvre `DiascoHomeActivity`, qui donne accès à trois espaces internes :
 
-1. **Assistant DIASCO** — conversation, réveil vocal, caméra, analyse d’image, génération d’images, code, formules et création de sites.
+1. **Assistant DIASCO** — conversation, dictée manuelle, caméra, analyse d’image, génération d’images, code, formules et création de sites.
 2. **Diagnostic Auto** — import ou partage des rapports ThinkDiag, extraction des DTC, analyse IA, lecture vocale et historique local.
 3. **Atelier ThinkDiag** — préparation contrôlée de l’effacement des défauts, du codage/adaptation et des tests d’actionneurs.
 
 ## Contraintes impératives
 
-- Ne supprime pas et ne dégrade pas les fonctions existantes de DIASCO : caméra, voix, réveil vocal, mémoire de conversation, génération d’images, création de sites et backend.
+- Ne supprime pas et ne dégrade pas les fonctions existantes de DIASCO : caméra, dictée manuelle, synthèse vocale, mémoire de conversation, génération d’images, création de sites et backend.
 - Ne transforme pas les trois espaces internes en trois applications ou trois icônes séparées.
 - Ne renomme pas l’application sans une demande explicite et récente de l’utilisateur.
 - Conserve les clés API exclusivement côté serveur. Aucune clé fournisseur ne doit être intégrée à l’APK.

@@ -2,7 +2,7 @@
 
 ## Objectif
 
-DIASCO regroupe dans une seule application les fonctions déjà présentes — conversation, réveil vocal, caméra, génération d'images, création de sites et mémoire de conversation — ainsi que les fonctions automobiles ThinkDiag.
+DIASCO regroupe dans une seule application les fonctions déjà présentes — conversation, dictée manuelle, caméra, génération d'images, création de sites et mémoire de conversation — ainsi que les fonctions automobiles ThinkDiag.
 
 La version 2.4.3 utilise **une seule application et une seule icône nommée DIASCO**. L'écran d'accueil donne accès à trois espaces internes :
 
