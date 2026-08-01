@@ -53,8 +53,11 @@ android {
 
     buildTypes {
         debug {
-            // Autorise HTTP uniquement dans les APK debug pour tester le backend local
-            // depuis un vrai téléphone ou l'émulateur. En production, utilisez HTTPS.
+            // Le suffixe permet d'installer l'APK de test à côté de la version DIASCO déjà signée.
+            applicationIdSuffix = ".thinkdiagtest"
+            versionNameSuffix = "-test"
+            // Autorise HTTP uniquement dans les APK debug pour tester un backend local.
+            // Le workflow ThinkDiag injecte cependant l'URL HTTPS du backend existant.
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             resValue("string", "default_backend_endpoint", debugEndpoint)
         }
