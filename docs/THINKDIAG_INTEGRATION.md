@@ -1,14 +1,16 @@
-# DIASCO Auto et DIASCO Atelier — intégration ThinkDiag
+# DIASCO unifié — intégration ThinkDiag
 
 ## Objectif
 
-Cette extension ajoute les fonctions automobiles à DIASCO sans modifier les fonctions déjà présentes dans l'application principale : conversation, réveil vocal, caméra, génération d'images, création de sites et mémoire de conversation.
+Cette extension ajoute les fonctions automobiles à DIASCO sans modifier les fonctions déjà présentes : conversation, réveil vocal, caméra, génération d'images, création de sites et mémoire de conversation.
 
-Trois entrées sont présentes dans l'APK de test :
+La version 2.4.0 utilise **une seule application et une seule icône DIASCO**. L'écran d'accueil donne accès à trois espaces internes :
 
-- **DIASCO Test** : assistant principal existant ;
-- **DIASCO Auto** : lecture et analyse des rapports ThinkDiag ;
-- **DIASCO Atelier** : préparation contrôlée des opérations d'effacement, de codage et de tests actifs.
+- **Assistant DIASCO** : assistant principal existant ;
+- **Diagnostic Auto** : lecture et analyse des rapports ThinkDiag ;
+- **Atelier ThinkDiag** : préparation contrôlée des opérations d'effacement, de codage et de tests actifs.
+
+Les écrans Auto et Atelier ne sont plus publiés comme des icônes séparées dans le lanceur Android.
 
 ## Liaison avec ThinkDiag+
 
@@ -20,14 +22,14 @@ DIASCO ne reproduit donc pas le protocole propriétaire :
 2. DIASCO conserve une trace locale de l'intervention préparée ;
 3. ThinkDiag+ est ouvert pour exécuter l'opération avec le logiciel constructeur correspondant ;
 4. un nouveau scan est réalisé ;
-5. le rapport après intervention est partagé vers DIASCO Auto pour contrôle et analyse.
+5. le rapport après intervention est partagé vers Diagnostic Auto pour contrôle et analyse.
 
-## DIASCO Auto — analyse des rapports
+## Diagnostic Auto — analyse des rapports
 
-1. Ouvrir DIASCO Auto puis toucher **Ouvrir ThinkDiag+**.
-2. Dans ThinkDiag+, lancer le diagnostic du véhicule.
+1. Ouvrir DIASCO, puis **Diagnostic Auto**.
+2. Toucher **Ouvrir ThinkDiag+** et lancer le diagnostic du véhicule.
 3. Depuis le rapport, choisir **Partager** puis **DIASCO Auto**.
-4. DIASCO Auto récupère le texte, le lien officiel ThinkCar ou le PDF partagé.
+4. DIASCO récupère le texte, le lien officiel ThinkCar ou le PDF partagé.
 5. L'analyse commence automatiquement, les codes défaut sont repérés localement, puis le backend DIASCO explique le rapport.
 6. Un résumé est lu à voix haute et le résultat est enregistré dans l'historique local.
 
@@ -38,7 +40,7 @@ Formats pris en charge :
 - fichier texte ou HTML importé ;
 - rapport PDF partagé ou importé.
 
-## DIASCO Atelier — fonctions demandées
+## Atelier ThinkDiag — fonctions demandées
 
 ### Effacement des défauts
 
@@ -107,11 +109,14 @@ cd android
 .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
 ```
 
-L'APK debug porte un suffixe d'application distinct. Il peut donc être installé à côté de la version DIASCO déjà signée, sans désinstaller l'application actuelle ni effacer ses données.
+L'APK debug porte un suffixe d'application distinct. Il peut donc être installé à côté de la version DIASCO déjà signée sans désinstaller l'application actuelle ni effacer ses données.
+
+Pendant le test, Android affiche donc l'ancien DIASCO et un seul nouvel icône **DIASCO Unifié**. Après validation et publication avec la signature de production, la nouvelle version remplace l'ancienne et il ne reste qu'une seule application DIASCO.
 
 Après installation sur l'autoradio Android 13, vérifier :
 
-- DIASCO Test démarre et conserve les fonctions actuelles ;
-- DIASCO Auto reçoit et analyse un rapport ThinkDiag+ ;
-- DIASCO Atelier bloque une préparation incomplète et ouvre ThinkDiag+ après validation ;
+- l'unique icône DIASCO Unifié ouvre l'accueil des trois espaces ;
+- Assistant DIASCO conserve les fonctions actuelles ;
+- Diagnostic Auto reçoit et analyse un rapport ThinkDiag+ ;
+- Atelier ThinkDiag bloque une préparation incomplète et ouvre ThinkDiag+ après validation ;
 - un nouveau rapport peut être partagé après l'intervention.
