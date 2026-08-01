@@ -36,8 +36,8 @@ android {
         applicationId = "com.dashai.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 240
-        versionName = "2.4.0"
+        versionCode = 241
+        versionName = "2.4.1"
     }
 
     signingConfigs {
@@ -56,8 +56,8 @@ android {
             // Le suffixe permet d'installer l'APK de test à côté de la version DIASCO déjà signée.
             applicationIdSuffix = ".thinkdiagtest"
             versionNameSuffix = "-test"
-            // Une seule icône de test regroupe désormais l'assistant, Auto et Atelier.
-            resValue("string", "app_name", "DIASCO Unifié")
+            // Le nom public reste uniquement DIASCO, même pour la version de test.
+            resValue("string", "app_name", "DIASCO")
             // Autorise HTTP uniquement dans les APK debug pour tester un backend local.
             // Le workflow ThinkDiag injecte cependant l'URL HTTPS du backend existant.
             manifestPlaceholders["usesCleartextTraffic"] = "true"
