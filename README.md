@@ -43,4 +43,4 @@ Cloudflare accorde un quota gratuit quotidien. Une fois ce quota atteint, DIASCO
 
 ## Distribution
 
-La page Netlify se trouve dans `download-site/` et distribue `diasco-2.1.0.apk`. Le backend de production reste hébergé sur Render avec HTTPS.
+La page Netlify se trouve dans `download-site/` et distribue `diasco-2.4.4.apk`. Le backend de production reste hébergé sur Render avec HTTPS.
