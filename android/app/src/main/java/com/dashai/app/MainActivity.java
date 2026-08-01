@@ -3,12 +3,9 @@ package com.dashai.app;
 import android.Manifest;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
-import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.content.pm.PackageManager;
@@ -43,15 +40,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.ContextCompat;
 
 import com.dashai.app.ai.AiRepository;
 import com.dashai.app.ai.RemoteAiClient;
 import com.dashai.app.util.ConversationMemory;
 import com.dashai.app.util.TextUtils;
-import com.dashai.app.voice.VoiceAuthenticator;
-import com.dashai.app.voice.WakePhrase;
-import com.dashai.app.voice.WakeWordService;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.materialswitch.MaterialSwitch;
@@ -72,25 +65,12 @@ public final class MainActivity extends AppCompatActivity {
     private static final int REQUEST_RECORD_AUDIO = 42;
     private static final int REQUEST_IMAGE_CAPTURE = 43;
     private static final int REQUEST_SAVE_IMAGE = 44;
-    private static final int REQUEST_NOTIFICATIONS = 45;
     private static final String PREFS = "dashai_prefs";
     private static final String KEY_ENDPOINT = "backend_endpoint";
     private static final String KEY_ONLINE = "online_enabled";
-    private static final String KEY_WAKE = "wake_enabled";
-    private static final String KEY_OWNER_PHRASE = "owner_phrase";
-    private static final String KEY_VOICE_PROFILE = "voice_profile";
     private static final String KEY_PRIVACY_NOTICE_ACCEPTED = "privacy_notice_accepted";
-    private static final String FIXED_WAKE_PHRASE = WakePhrase.DISPLAY;
-    private static final String FIXED_WAKE_PHRASE_SPOKEN = WakePhrase.SPOKEN;
     private static final int MAX_HISTORY_LINES = 18;
     private static final long AUDIO_ERROR_CHAT_COOLDOWN_MS = 15_000L;
-    private static final long WAKE_RESTART_DELAY_MS = 2_500L;
-    private static final long OWNER_TRUST_WINDOW_MS = 3 * 60 * 1000L;
-    private static final int VOICE_MODE_IDLE = 0;
-    private static final int VOICE_MODE_MANUAL_QUESTION = 1;
-    private static final int VOICE_MODE_WAKE_LISTENING = 2;
-    private static final int VOICE_MODE_WAKE_QUESTION = 3;
-    private static final int VOICE_MODE_OWNER_CHECK = 4;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AiRepository aiRepository = new AiRepository();
@@ -98,9 +78,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private SharedPreferences preferences;
     private EditText endpointInput;
-    private EditText ownerPhraseInput;
     private MaterialSwitch onlineSwitch;
-    private MaterialSwitch wakeSwitch;
     private LinearLayout chatContainer;
     private TextView statusText;
     private View statusDot;
@@ -110,46 +88,20 @@ public final class MainActivity extends AppCompatActivity {
     private MaterialButton cameraButton;
     private MaterialButton testButton;
     private MaterialButton clearButton;
-    private MaterialButton enrollVoiceButton;
     private ScrollView scrollView;
     private TextToSpeech tts;
     private SpeechRecognizer speechRecognizer;
     private boolean busy;
     private boolean voiceListening;
-    private boolean wakeModeEnabled;
-    private boolean pendingEnableWakeMode;
-    private boolean pendingEnrollVoice;
-    private boolean resumeWakeAfterEnroll;
-    private int voiceMode = VOICE_MODE_IDLE;
     private boolean speechPartialHandled;
     private boolean manualQuestionAutoRetryUsed;
     private String pendingQuestionText;
     private int pendingQuestionVersion;
     private int speechCounter;
     private long lastAudioChatErrorAt;
-    private long ownerVoiceTrustedUntilMs;
     private String pendingVisionPrompt;
     private byte[] pendingImageBytes;
     private String pendingImageMimeType;
-    private boolean wakeReceiverRegistered;
-
-    private final BroadcastReceiver wakeEventReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (intent == null || !WakeWordService.ACTION_EVENT.equals(intent.getAction())) return;
-            String event = intent.getStringExtra(WakeWordService.EXTRA_EVENT);
-            String text = intent.getStringExtra(WakeWordService.EXTRA_TEXT);
-            if (WakeWordService.EVENT_STATUS.equals(event)) {
-                status(text == null ? "Réveil vocal actif." : text);
-            } else if (WakeWordService.EVENT_WAKE.equals(event)) {
-                appendAssistant(text == null ? "Oui, je vous écoute." : text);
-            } else if (WakeWordService.EVENT_QUESTION.equals(event)) {
-                appendUser(text == null ? "" : text);
-            } else if (WakeWordService.EVENT_ANSWER.equals(event)) {
-                appendAssistant(text == null ? "" : text);
-            }
-        }
-    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -160,32 +112,6 @@ public final class MainActivity extends AppCompatActivity {
         initTextToSpeech();
         renderStoredConversation();
         showPrivacyNoticeIfNeeded();
-        if (wakeSwitch.isChecked()) {
-            wakeSwitch.post(() -> enableWakeMode());
-        }
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-        if (!wakeReceiverRegistered) {
-            IntentFilter filter = new IntentFilter(WakeWordService.ACTION_EVENT);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(wakeEventReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-            } else {
-                registerReceiver(wakeEventReceiver, filter);
-            }
-            wakeReceiverRegistered = true;
-        }
-    }
-
-    @Override
-    protected void onStop() {
-        if (wakeReceiverRegistered) {
-            unregisterReceiver(wakeEventReceiver);
-            wakeReceiverRegistered = false;
-        }
-        super.onStop();
     }
 
     @Override
@@ -209,7 +135,6 @@ public final class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        wakeModeEnabled = wakeSwitch != null && wakeSwitch.isChecked();
         statusReady();
     }
 
@@ -331,69 +256,6 @@ public final class MainActivity extends AppCompatActivity {
             debugParams.setMargins(pagePadding, 0, pagePadding, dp(10));
             root.addView(debugCard, debugParams);
         }
-
-        MaterialCardView wakeCard = new MaterialCardView(this);
-        wakeCard.setRadius(dp(8));
-        wakeCard.setCardElevation(0);
-        wakeCard.setStrokeColor(Color.rgb(220, 228, 225));
-        wakeCard.setStrokeWidth(dp(1));
-        wakeCard.setCardBackgroundColor(Color.WHITE);
-        LinearLayout wakeContent = new LinearLayout(this);
-        wakeContent.setOrientation(LinearLayout.HORIZONTAL);
-        wakeContent.setGravity(Gravity.CENTER_VERTICAL);
-        wakeContent.setPadding(dp(14), dp(11), dp(12), dp(11));
-
-        LinearLayout wakeLabels = new LinearLayout(this);
-        wakeLabels.setOrientation(LinearLayout.VERTICAL);
-        TextView wakeTitle = new TextView(this);
-        wakeTitle.setText("Réveil vocal");
-        wakeTitle.setTextSize(15);
-        wakeTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        wakeTitle.setTextColor(Color.rgb(23, 33, 38));
-        wakeLabels.addView(wakeTitle);
-        TextView wakePhrase = new TextView(this);
-        wakePhrase.setText("« Dis Diasco »");
-        wakePhrase.setTextSize(13);
-        wakePhrase.setTextColor(Color.rgb(0, 143, 114));
-        wakeLabels.addView(wakePhrase);
-        wakeContent.addView(wakeLabels, new LinearLayout.LayoutParams(0, -2, 1f));
-
-        wakeSwitch = new MaterialSwitch(this);
-        wakeSwitch.setChecked(preferences.getBoolean(KEY_WAKE, false));
-        wakeSwitch.setContentDescription("Activer le réveil vocal Dis Diasco");
-        wakeSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (isChecked) enableWakeMode();
-            else disableWakeMode();
-        });
-        wakeContent.addView(wakeSwitch, new LinearLayout.LayoutParams(-2, -2));
-        wakeCard.addView(wakeContent);
-        LinearLayout.LayoutParams wakeParams = new LinearLayout.LayoutParams(-1, -2);
-        wakeParams.setMargins(pagePadding, 0, pagePadding, dp(8));
-        root.addView(wakeCard, wakeParams);
-
-        ownerPhraseInput = new EditText(this);
-        ownerPhraseInput.setSingleLine(true);
-        ownerPhraseInput.setInputType(InputType.TYPE_CLASS_TEXT);
-        ownerPhraseInput.setHint("Phrase utilisateur");
-        ownerPhraseInput.setText(FIXED_WAKE_PHRASE_SPOKEN);
-        ownerPhraseInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        ownerPhraseInput.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_DONE) {
-                saveSettings();
-                ownerPhraseInput.clearFocus();
-                status("Phrase utilisateur sauvegardée.");
-                return true;
-            }
-            return false;
-        });
-        ownerPhraseInput.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus) saveSettings();
-        });
-        ownerPhraseInput.setEnabled(false);
-
-        enrollVoiceButton = new MaterialButton(this);
-        enrollVoiceButton.setText(hasVoiceProfile() ? "Refaire empreinte voix" : "Enregistrer ma voix");
-        enrollVoiceButton.setOnClickListener(view -> enrollOwnerVoice());
 
         LinearLayout statusRow = new LinearLayout(this);
         statusRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -519,8 +381,9 @@ public final class MainActivity extends AppCompatActivity {
     private void ensureProductionDefaults() {
         SharedPreferences.Editor editor = preferences.edit()
                 .putBoolean(KEY_ONLINE, true)
-                .putString(KEY_OWNER_PHRASE, FIXED_WAKE_PHRASE_SPOKEN);
-        if (!preferences.contains(KEY_WAKE)) editor.putBoolean(KEY_WAKE, true);
+                .remove("wake_enabled")
+                .remove("owner_phrase")
+                .remove("voice_profile");
         editor.apply();
     }
 
@@ -538,7 +401,7 @@ public final class MainActivity extends AppCompatActivity {
         String commandAnswer = handleModeCommand(question);
         if (commandAnswer != null) {
             appendAssistant(commandAnswer);
-            speakAndResumeWake(commandAnswer);
+            speak(commandAnswer);
             return;
         }
 
@@ -578,7 +441,7 @@ public final class MainActivity extends AppCompatActivity {
                 String cleanAnswer = cleanAssistantText(answer);
                 appendAssistant(cleanAnswer, technicalRequest || looksLikeTechnicalContent(cleanAnswer));
                 rememberTurn(question, cleanAnswer);
-                speakAndResumeWake(speechSummaryForAnswer(question, cleanAnswer));
+                speak(speechSummaryForAnswer(question, cleanAnswer));
             });
         });
     }
@@ -702,7 +565,7 @@ public final class MainActivity extends AppCompatActivity {
                     appendImage(result.imageBase64, result.mimeType);
                 }
                 rememberTurn(prompt, cleanMessage);
-                speakAndResumeWake(cleanMessage);
+                speak(cleanMessage);
             });
         });
     }
@@ -736,10 +599,10 @@ public final class MainActivity extends AppCompatActivity {
                 if (result.hasSite()) {
                     openWebsitePreview(result.title, result.html);
                     status("Site prêt à prévisualiser.");
-                    speakAndResumeWake("Le site est prêt. Je l’ai ouvert dans l’aperçu.");
+                    speak("Le site est prêt. Je l’ai ouvert dans l’aperçu.");
                 } else {
                     statusReady();
-                    speakAndResumeWake(message);
+                    speak(message);
                 }
             });
         });
@@ -928,7 +791,7 @@ public final class MainActivity extends AppCompatActivity {
                 String cleanAnswer = cleanAssistantText(answer);
                 appendAssistant(cleanAnswer);
                 rememberTurn("Photo : " + prompt, cleanAnswer);
-                speakAndResumeWake(cleanAnswer);
+                speak(cleanAnswer);
             });
         });
     }
@@ -941,63 +804,11 @@ public final class MainActivity extends AppCompatActivity {
 
     private void startVoiceInput() {
         if (busy || voiceListening) return;
-        if (wakeModeEnabled) {
-            Intent serviceIntent = new Intent(this, WakeWordService.class)
-                    .setAction(WakeWordService.ACTION_LISTEN_NOW);
-            ContextCompat.startForegroundService(this, serviceIntent);
-            status("Micro : activation de l’écoute…");
-            return;
-        }
         manualQuestionAutoRetryUsed = false;
-        startSpeechRecognition(VOICE_MODE_MANUAL_QUESTION);
+        startSpeechRecognition();
     }
 
-    private void enableWakeMode() {
-        if (busy) return;
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            appendAssistant("La reconnaissance vocale Android n’est pas disponible sur ce téléphone.");
-            setWakeSwitchChecked(false);
-            return;
-        }
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            pendingEnableWakeMode = true;
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
-            return;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            pendingEnableWakeMode = true;
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
-            return;
-        }
-        wakeModeEnabled = true;
-        pendingEnableWakeMode = false;
-        saveSettings();
-        Intent serviceIntent = new Intent(this, WakeWordService.class).setAction(WakeWordService.ACTION_START);
-        try {
-            ContextCompat.startForegroundService(this, serviceIntent);
-            status("Réveil vocal actif, même écran verrouillé.");
-        } catch (RuntimeException exception) {
-            wakeModeEnabled = false;
-            setWakeSwitchChecked(false);
-            saveSettings();
-            appendAssistant("Le service de réveil vocal n’a pas pu démarrer sur ce téléphone.");
-        }
-        updateControlsState();
-    }
-
-    private void disableWakeMode() {
-        wakeModeEnabled = false;
-        pendingEnableWakeMode = false;
-        clearOwnerVoiceTrust();
-        saveSettings();
-        stopSpeechRecognizer();
-        stopService(new Intent(this, WakeWordService.class));
-        statusReady();
-        updateControlsState();
-    }
-
-    private void startSpeechRecognition(int mode) {
+    private void startSpeechRecognition() {
         if (busy || voiceListening) return;
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             appendAssistant("La reconnaissance vocale Android n’est pas disponible sur cet appareil.");
@@ -1012,28 +823,25 @@ public final class MainActivity extends AppCompatActivity {
         if (speechRecognizer != null) {
             speechRecognizer.destroy();
         }
-        voiceMode = mode;
         speechPartialHandled = false;
-        if (isQuestionMode(mode)) {
-            pendingQuestionText = null;
-            pendingQuestionVersion++;
-        }
+        pendingQuestionText = null;
+        pendingQuestionVersion++;
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
-            @Override public void onReadyForSpeech(Bundle params) { statusForListeningMode(mode); }
+            @Override public void onReadyForSpeech(Bundle params) { status("Micro : écoute longue, pose ta question…"); }
             @Override public void onBeginningOfSpeech() { status("Micro : parole détectée…"); }
             @Override public void onRmsChanged(float rmsdB) { }
             @Override public void onBufferReceived(byte[] buffer) { }
             @Override public void onEndOfSpeech() { status("Micro : traitement audio…"); }
             @Override public void onPartialResults(Bundle partialResults) {
-                handleSpeechPartial(mode, partialResults);
+                handleSpeechPartial(partialResults);
             }
             @Override public void onEvent(int eventType, Bundle params) { }
 
             @Override
             public void onError(int error) {
                 if (speechPartialHandled) return;
-                handleSpeechError(mode, error);
+                handleSpeechError(error);
             }
 
             @Override
@@ -1042,10 +850,10 @@ public final class MainActivity extends AppCompatActivity {
                 setVoiceState(false, "Micro : prêt.");
                 ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 if (matches == null || matches.isEmpty()) {
-                    handleEmptySpeechResult(mode);
+                    handleEmptySpeechResult();
                     return;
                 }
-                handleSpeechMatches(mode, matches);
+                handleSpeechMatches(matches);
             }
         });
 
@@ -1053,114 +861,60 @@ public final class MainActivity extends AppCompatActivity {
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fr-FR");
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-        if (isQuestionMode(mode)) {
-            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 12_000);
-            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 4_500);
-            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3_000);
-        } else {
-            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 4_000);
-            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1_800);
-            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1_200);
-        }
-        String prompt = "Posez votre question à DIASCO";
-        if (mode == VOICE_MODE_WAKE_LISTENING) {
-            prompt = "Dites : dis Diasco";
-        } else if (mode == VOICE_MODE_OWNER_CHECK) {
-            prompt = "Dites votre phrase utilisateur";
-        }
-        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, prompt);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 12_000);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 4_500);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3_000);
+        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Posez votre question à DIASCO");
         intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
-        setVoiceState(true, messageForListeningMode(mode));
-        speechRecognizer.startListening(intent);
+        setVoiceState(true, "Micro : écoute longue, pose ta question…");
+        try {
+            speechRecognizer.startListening(intent);
+        } catch (RuntimeException exception) {
+            stopSpeechRecognizer();
+            status("Micro indisponible. Réessaie.");
+        }
     }
 
-    private void handleSpeechError(int mode, int error) {
-        setVoiceState(false, idleMessageForMode(mode));
-        if (isQuestionMode(mode) && pendingQuestionText != null && !pendingQuestionText.trim().isEmpty()) {
-            submitQuestionFromPartial(pendingQuestionVersion, mode);
+    private void handleSpeechError(int error) {
+        setVoiceState(false, "Micro : prêt.");
+        if (pendingQuestionText != null && !pendingQuestionText.trim().isEmpty()) {
+            submitQuestionFromPartial(pendingQuestionVersion);
             return;
         }
         if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-            handleEmptySpeechResult(mode);
+            handleEmptySpeechResult();
             return;
         }
-
-        if (mode == VOICE_MODE_WAKE_LISTENING || mode == VOICE_MODE_WAKE_QUESTION || mode == VOICE_MODE_OWNER_CHECK) {
-            status(idleMessageForMode(mode));
-            startWakeListeningSoon(WAKE_RESTART_DELAY_MS);
-            return;
-        }
-
         status("Erreur audio. Réessaie ou écris la question.");
         appendAudioErrorOnce("Je n’ai pas compris l’audio. Réessaie ou écris la question.");
     }
 
-    private void handleSpeechPartial(int mode, Bundle partialResults) {
+    private void handleSpeechPartial(Bundle partialResults) {
         if (speechPartialHandled || partialResults == null) return;
         ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
         if (matches == null || matches.isEmpty()) return;
-
-        if (mode == VOICE_MODE_WAKE_LISTENING) {
-            String wakeMatch = findWakeMatch(matches);
-            if (wakeMatch != null) {
-                speechPartialHandled = true;
-                scrollView.post(() -> {
-                    stopSpeechRecognizer();
-                    status("Réveil vocal : mot détecté.");
-                    handleSpeechText(mode, wakeMatch);
-                });
-                return;
-            }
-
-            String heard = firstNonEmpty(matches);
-            if (heard != null) {
-                status("Réveil vocal : entendu « " + limitForStatus(heard) + " ».");
-            }
-        }
-
-        if (isQuestionMode(mode)) {
-            String heard = firstNonEmpty(matches);
-            if (heard != null && heard.trim().length() >= 2) {
-                pendingQuestionText = heard.trim();
-                int version = ++pendingQuestionVersion;
-                status("Question entendue : « " + limitForStatus(pendingQuestionText) + " ».");
-                scrollView.postDelayed(() -> submitQuestionFromPartial(version, mode), 2_200);
-            }
+        String heard = firstNonEmpty(matches);
+        if (heard != null && heard.trim().length() >= 2) {
+            pendingQuestionText = heard.trim();
+            int version = ++pendingQuestionVersion;
+            status("Question entendue : « " + limitForStatus(pendingQuestionText) + " ».");
+            scrollView.postDelayed(() -> submitQuestionFromPartial(version), 2_200);
         }
     }
 
-    private void handleSpeechMatches(int mode, ArrayList<String> matches) {
-        if (mode == VOICE_MODE_WAKE_LISTENING) {
-            String wakeMatch = findWakeMatch(matches);
-            if (wakeMatch != null) {
-                handleSpeechText(mode, wakeMatch);
-                return;
-            }
-
-            String heard = firstNonEmpty(matches);
-            if (heard != null) {
-                status("Réveil vocal : entendu « " + limitForStatus(heard) + " ».");
-            }
-            startWakeListeningSoon(WAKE_RESTART_DELAY_MS);
-            return;
-        }
-
+    private void handleSpeechMatches(ArrayList<String> matches) {
         String first = firstNonEmpty(matches);
         if (first == null) {
-            handleEmptySpeechResult(mode);
+            handleEmptySpeechResult();
             return;
         }
-        if (isQuestionMode(mode)) {
-            pendingQuestionVersion++;
-            pendingQuestionText = null;
-        }
-        handleSpeechText(mode, first);
+        pendingQuestionVersion++;
+        pendingQuestionText = null;
+        ask(first);
     }
 
-    private void submitQuestionFromPartial(int version, int expectedMode) {
+    private void submitQuestionFromPartial(int version) {
         if (speechPartialHandled) return;
-        if (voiceMode != expectedMode) return;
-        if (!isQuestionMode(expectedMode)) return;
         if (version != pendingQuestionVersion) return;
         String question = pendingQuestionText == null ? "" : pendingQuestionText.trim();
         if (question.length() < 2) return;
@@ -1169,17 +923,6 @@ public final class MainActivity extends AppCompatActivity {
         stopSpeechRecognizer();
         status("Question reçue : « " + limitForStatus(question) + " ».");
         ask(question);
-    }
-
-    private boolean isQuestionMode(int mode) {
-        return mode == VOICE_MODE_MANUAL_QUESTION || mode == VOICE_MODE_WAKE_QUESTION;
-    }
-
-    private String findWakeMatch(ArrayList<String> matches) {
-        for (String match : matches) {
-            if (containsWakePhrase(match)) return match;
-        }
-        return null;
     }
 
     private String firstNonEmpty(ArrayList<String> matches) {
@@ -1194,247 +937,16 @@ public final class MainActivity extends AppCompatActivity {
         return clean.length() > 34 ? clean.substring(0, 34) + "…" : clean;
     }
 
-    private void handleEmptySpeechResult(int mode) {
-        if (mode == VOICE_MODE_MANUAL_QUESTION) {
-            if (!manualQuestionAutoRetryUsed) {
-                manualQuestionAutoRetryUsed = true;
-                status("Micro : je n’ai rien entendu, je relance l’écoute…");
-                scrollView.postDelayed(() -> {
-                    if (!busy && !voiceListening && !wakeModeEnabled) {
-                        startSpeechRecognition(VOICE_MODE_MANUAL_QUESTION);
-                    }
-                }, 700);
-            } else {
-                status("Micro : aucune question détectée.");
-            }
-            return;
+    private void handleEmptySpeechResult() {
+        if (!manualQuestionAutoRetryUsed) {
+            manualQuestionAutoRetryUsed = true;
+            status("Micro : je n’ai rien entendu, je relance l’écoute…");
+            scrollView.postDelayed(() -> {
+                if (!busy && !voiceListening) startSpeechRecognition();
+            }, 700);
+        } else {
+            status("Micro : aucune question détectée.");
         }
-        if (mode == VOICE_MODE_WAKE_LISTENING) {
-            status(idleMessageForMode(mode));
-            startWakeListeningSoon(WAKE_RESTART_DELAY_MS);
-            return;
-        }
-        if (mode == VOICE_MODE_WAKE_QUESTION) {
-            status("Réveil vocal : aucune question détectée.");
-            startWakeListeningSoon(WAKE_RESTART_DELAY_MS);
-            return;
-        }
-        if (mode == VOICE_MODE_OWNER_CHECK) {
-            status("Réveil vocal : utilisateur non reconnu.");
-            startWakeListeningSoon(WAKE_RESTART_DELAY_MS);
-            return;
-        }
-        status("Micro : aucun texte détecté.");
-    }
-
-    private void handleSpeechText(int mode, String text) {
-        String spoken = text == null ? "" : text.trim();
-        if (spoken.isEmpty()) {
-            handleEmptySpeechResult(mode);
-            return;
-        }
-
-        if (mode == VOICE_MODE_WAKE_LISTENING) {
-            if (containsWakePhrase(spoken)) {
-                trustOwnerVoiceTemporarily();
-                acknowledgeOwnerAndListen();
-            } else {
-                status("Réveil vocal : dites « dis Diasco ».");
-                startWakeListeningSoon(400);
-            }
-            return;
-        }
-
-        if (mode == VOICE_MODE_OWNER_CHECK) {
-            verifyOwnerVoice();
-            return;
-        }
-
-        if (mode == VOICE_MODE_WAKE_QUESTION) {
-            status("Question reçue : « " + limitForStatus(spoken) + " ».");
-            ask(spoken);
-            return;
-        }
-
-        ask(spoken);
-    }
-
-    private boolean containsWakePhrase(String text) {
-        return WakePhrase.matches(text);
-    }
-
-    private String cleanOwnerPhrase() {
-        return TextUtils.normalizeForIntent(FIXED_WAKE_PHRASE_SPOKEN);
-    }
-
-    private boolean hasVoiceProfile() {
-        return VoiceAuthenticator.deserialize(preferences.getString(KEY_VOICE_PROFILE, "")) != null;
-    }
-
-    private boolean isOwnerVoiceTrusted() {
-        return System.currentTimeMillis() < ownerVoiceTrustedUntilMs;
-    }
-
-    private void trustOwnerVoiceTemporarily() {
-        ownerVoiceTrustedUntilMs = System.currentTimeMillis() + OWNER_TRUST_WINDOW_MS;
-    }
-
-    private void clearOwnerVoiceTrust() {
-        ownerVoiceTrustedUntilMs = 0L;
-    }
-
-    private void enrollOwnerVoice() {
-        if (busy || voiceListening) return;
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            pendingEnrollVoice = true;
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_RECORD_AUDIO);
-            return;
-        }
-
-        resumeWakeAfterEnroll = wakeModeEnabled || wakeSwitch.isChecked();
-        wakeModeEnabled = false;
-        clearOwnerVoiceTrust();
-        stopSpeechRecognizer();
-        saveSettings();
-        String phrase = FIXED_WAKE_PHRASE;
-        appendAssistant("Enregistrement voix : dites clairement « " + phrase + " » quand je vous le demande.");
-        status("Empreinte voix : préparez-vous…");
-        setBusy(true);
-        speakThen("Préparez-vous. Répétez maintenant : " + phrase + ".", this::captureOwnerVoiceProfile);
-    }
-
-    private void captureOwnerVoiceProfile() {
-        status("Empreinte voix : parlez maintenant…");
-        executor.execute(() -> {
-            try {
-                VoiceAuthenticator.VoiceSample sample = VoiceAuthenticator.captureSample(MainActivity.this);
-                String serialized = VoiceAuthenticator.serialize(sample.features);
-                runOnUiThread(() -> {
-                    preferences.edit().putString(KEY_VOICE_PROFILE, serialized).apply();
-                    setBusy(false);
-                    enrollVoiceButton.setText("Refaire empreinte voix");
-                    appendAssistant("Empreinte vocale enregistrée.");
-                    resumeWakeAfterVoiceEnroll();
-                });
-            } catch (VoiceAuthenticator.VoiceAuthException ex) {
-                runOnUiThread(() -> {
-                    setBusy(false);
-                    appendAssistant("Empreinte vocale non enregistrée : " + ex.getMessage());
-                    resumeWakeAfterVoiceEnroll();
-                });
-            }
-        });
-    }
-
-    private void resumeWakeAfterVoiceEnroll() {
-        if (resumeWakeAfterEnroll && wakeSwitch.isChecked() && hasVoiceProfile()) {
-            wakeModeEnabled = true;
-            resumeWakeAfterEnroll = false;
-            status(idleMessageForMode(VOICE_MODE_WAKE_LISTENING));
-            startWakeListeningSoon(1200);
-            updateControlsState();
-            return;
-        }
-
-        resumeWakeAfterEnroll = false;
-        statusReady();
-        updateControlsState();
-    }
-
-    private void verifyOwnerVoice() {
-        if (busy) return;
-        double[] expected = VoiceAuthenticator.deserialize(preferences.getString(KEY_VOICE_PROFILE, ""));
-        if (expected == null) {
-            appendAssistant("Aucune empreinte vocale utilisateur n’est enregistrée.");
-            startWakeListeningSoon(1200);
-            return;
-        }
-
-        stopSpeechRecognizer();
-        status("Réveil vocal : vérification de la voix…");
-        setBusy(true);
-        executor.execute(() -> {
-            try {
-                VoiceAuthenticator.VoiceSample sample = VoiceAuthenticator.captureSample(MainActivity.this);
-                double score = VoiceAuthenticator.similarity(expected, sample.features);
-                runOnUiThread(() -> {
-                    setBusy(false);
-                    String scoreText = String.format(Locale.FRANCE, "%.2f", score);
-                    if (score >= VoiceAuthenticator.DEFAULT_THRESHOLD) {
-                        status("Réveil vocal : voix reconnue (" + scoreText + ").");
-                        trustOwnerVoiceTemporarily();
-                        acknowledgeOwnerAndListen();
-                    } else {
-                        status("Réveil vocal : voix refusée.");
-                        appendAssistant("Voix non reconnue (score " + scoreText + "). Je reste en attente de l’utilisateur.");
-                        startWakeListeningSoon(1200);
-                    }
-                });
-            } catch (VoiceAuthenticator.VoiceAuthException ex) {
-                runOnUiThread(() -> {
-                    setBusy(false);
-                    status("Réveil vocal : voix non vérifiée.");
-                    appendAssistant("Voix non vérifiée : " + ex.getMessage());
-                    startWakeListeningSoon(1200);
-                });
-            }
-        });
-    }
-
-    private void acknowledgeOwnerAndListen() {
-        String answer = "Oui, je vous écoute.";
-        appendAssistant(answer);
-        status("Réveil vocal : question attendue…");
-        speakThen(answer, () -> startWakeQuestionSoon(250));
-    }
-
-    private void startWakeListeningSoon(long delayMs) {
-        if (!wakeModeEnabled || busy) return;
-        scrollView.postDelayed(() -> {
-            if (wakeModeEnabled && !busy && !voiceListening) {
-                startSpeechRecognition(VOICE_MODE_WAKE_LISTENING);
-            }
-        }, delayMs);
-    }
-
-    private void startWakeQuestionSoon(long delayMs) {
-        if (!wakeModeEnabled || busy) return;
-        scrollView.postDelayed(() -> {
-            if (wakeModeEnabled && !busy && !voiceListening) {
-                startSpeechRecognition(VOICE_MODE_WAKE_QUESTION);
-            }
-        }, delayMs);
-    }
-
-    private void startOwnerVoiceCheckSoon(long delayMs) {
-        if (!wakeModeEnabled || busy) return;
-        scrollView.postDelayed(() -> {
-            if (wakeModeEnabled && !busy && !voiceListening) {
-                verifyOwnerVoice();
-            }
-        }, delayMs);
-    }
-
-    private void speakAndResumeWake(String text) {
-        speak(text);
-    }
-
-    private void statusForListeningMode(int mode) {
-        status(messageForListeningMode(mode));
-    }
-
-    private String messageForListeningMode(int mode) {
-        if (mode == VOICE_MODE_WAKE_LISTENING) return "Réveil vocal : surveillance active. Dites « " + FIXED_WAKE_PHRASE + " ».";
-        if (mode == VOICE_MODE_OWNER_CHECK) return "Réveil vocal : répétez « " + FIXED_WAKE_PHRASE + " ».";
-        if (mode == VOICE_MODE_WAKE_QUESTION) return "Réveil vocal : je vous écoute…";
-        return "Micro : écoute longue, pose ta question…";
-    }
-
-    private String idleMessageForMode(int mode) {
-        if (mode == VOICE_MODE_WAKE_LISTENING) return "Réveil vocal : surveillance active. Dites « " + FIXED_WAKE_PHRASE + " ».";
-        if (mode == VOICE_MODE_WAKE_QUESTION) return "Réveil vocal : en attente.";
-        if (mode == VOICE_MODE_OWNER_CHECK) return "Réveil vocal : identification en attente.";
-        return "Micro : prêt.";
     }
 
     private void stopSpeechRecognizer() {
@@ -1443,50 +955,16 @@ public final class MainActivity extends AppCompatActivity {
             speechRecognizer.destroy();
             speechRecognizer = null;
         }
-        voiceMode = VOICE_MODE_IDLE;
         voiceListening = false;
-    }
-
-    private void setWakeSwitchChecked(boolean checked) {
-        wakeSwitch.setOnCheckedChangeListener(null);
-        wakeSwitch.setChecked(checked);
-        wakeSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (isChecked) enableWakeMode();
-            else disableWakeMode();
-        });
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_RECORD_AUDIO && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            if (pendingEnrollVoice) {
-                pendingEnrollVoice = false;
-                enrollOwnerVoice();
-                return;
-            }
-            if (pendingEnableWakeMode) {
-                enableWakeMode();
-                return;
-            }
             startVoiceInput();
-        } else if (requestCode == REQUEST_RECORD_AUDIO && pendingEnableWakeMode) {
-            pendingEnableWakeMode = false;
-            setWakeSwitchChecked(false);
+        } else if (requestCode == REQUEST_RECORD_AUDIO) {
             statusReady();
-        } else if (requestCode == REQUEST_RECORD_AUDIO && pendingEnrollVoice) {
-            pendingEnrollVoice = false;
-            statusReady();
-        } else if (requestCode == REQUEST_NOTIFICATIONS) {
-            if (pendingEnableWakeMode && grantResults.length > 0
-                    && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                enableWakeMode();
-            } else if (pendingEnableWakeMode) {
-                pendingEnableWakeMode = false;
-                setWakeSwitchChecked(false);
-                appendAssistant("La notification permanente est nécessaire au réveil vocal écran verrouillé.");
-                statusReady();
-            }
         }
     }
 
@@ -1786,7 +1264,7 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private boolean showDeveloperControls() {
-        return isDebugBuild();
+        return false;
     }
 
     private boolean isOnlineModeForced() {
@@ -1799,9 +1277,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private void saveSettings() {
         SharedPreferences.Editor editor = preferences.edit()
-                .putString(KEY_OWNER_PHRASE, FIXED_WAKE_PHRASE_SPOKEN)
-                .putBoolean(KEY_ONLINE, isOnlineModeEnabled())
-                .putBoolean(KEY_WAKE, wakeSwitch != null && wakeSwitch.isChecked());
+                .putBoolean(KEY_ONLINE, isOnlineModeEnabled());
         if (showDeveloperControls()) {
             editor.putString(KEY_ENDPOINT, currentEndpoint());
         } else {
@@ -1824,29 +1300,20 @@ public final class MainActivity extends AppCompatActivity {
     private void updateControlsState() {
         boolean canStartAction = !busy && !voiceListening;
         askButton.setEnabled(canStartAction);
-        micButton.setEnabled(canStartAction && !wakeModeEnabled);
+        micButton.setEnabled(canStartAction);
         cameraButton.setEnabled(canStartAction);
         testButton.setEnabled(canStartAction);
         clearButton.setEnabled(!busy);
-        enrollVoiceButton.setEnabled(canStartAction);
         endpointInput.setEnabled(!busy);
-        ownerPhraseInput.setEnabled(!busy && !voiceListening);
         questionInput.setEnabled(!busy);
         onlineSwitch.setEnabled(!busy && !isOnlineModeForced());
-        wakeSwitch.setEnabled(!busy);
         micButton.setText(null);
         micButton.setIconResource(R.drawable.ic_mic);
-        micButton.setContentDescription(wakeModeEnabled
-                ? "Le réveil vocal est actif"
-                : voiceListening ? "Écoute en cours" : "Poser une question à la voix");
+        micButton.setContentDescription(voiceListening ? "Écoute en cours" : "Poser une question à la voix");
     }
 
     private void statusReady() {
-        if (wakeModeEnabled) {
-            status("Réveil vocal actif · « Dis Diasco »");
-        } else {
-            status("Prêt");
-        }
+        status("Prêt");
     }
 
     private boolean isDebugBuild() {
