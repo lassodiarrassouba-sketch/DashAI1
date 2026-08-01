@@ -36,8 +36,8 @@ android {
         applicationId = "com.dashai.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 242
-        versionName = "2.4.2"
+        versionCode = 243
+        versionName = "2.4.3"
     }
 
     signingConfigs {
@@ -57,7 +57,7 @@ android {
             applicationIdSuffix = ".thinkdiagtest"
             versionNameSuffix = "-test"
             // Le nom public est identique dans les builds de test et de production.
-            resValue("string", "app_name", "DIASCO Auto")
+            resValue("string", "app_name", "DIASCO")
             // Autorise HTTP uniquement dans les APK debug pour tester un backend local.
             // Le workflow ThinkDiag injecte cependant l'URL HTTPS du backend existant.
             manifestPlaceholders["usesCleartextTraffic"] = "true"
