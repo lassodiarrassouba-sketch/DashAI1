@@ -1,16 +1,28 @@
-# DIASCO Auto — intégration ThinkDiag
+# DIASCO Auto et DIASCO Atelier — intégration ThinkDiag
 
 ## Objectif
 
-Cette extension ajoute l'analyse des diagnostics automobiles à DIASCO sans modifier les fonctions déjà présentes dans l'application principale : conversation, réveil vocal, caméra, génération d'images, création de sites et mémoire de conversation.
+Cette extension ajoute les fonctions automobiles à DIASCO sans modifier les fonctions déjà présentes dans l'application principale : conversation, réveil vocal, caméra, génération d'images, création de sites et mémoire de conversation.
 
-L'écran automobile est une activité Android séparée nommée **DIASCO Auto**. Dans la version finale signée, il apparaît comme une deuxième icône de lancement, tout en restant dans la même application et le même APK.
+Trois entrées sont présentes dans l'APK de test :
 
-## Architecture retenue
+- **DIASCO Test** : assistant principal existant ;
+- **DIASCO Auto** : lecture et analyse des rapports ThinkDiag ;
+- **DIASCO Atelier** : préparation contrôlée des opérations d'effacement, de codage et de tests actifs.
 
-ThinkDiag utilise son application officielle **ThinkDiag+** pour la communication Bluetooth avec le boîtier et les calculateurs du véhicule. DIASCO ne tente pas de reproduire, contourner ou modifier ce protocole.
+## Liaison avec ThinkDiag+
 
-Le fonctionnement est le suivant :
+ThinkDiag utilise l'application officielle **ThinkDiag+** pour la communication Bluetooth avec le boîtier et les calculateurs. La documentation publique ThinkCar ne fournit pas de SDK Android partenaire permettant à une application tierce d'envoyer directement ces commandes.
+
+DIASCO ne reproduit donc pas le protocole propriétaire :
+
+1. DIASCO vérifie les préconditions et demande une confirmation explicite ;
+2. DIASCO conserve une trace locale de l'intervention préparée ;
+3. ThinkDiag+ est ouvert pour exécuter l'opération avec le logiciel constructeur correspondant ;
+4. un nouveau scan est réalisé ;
+5. le rapport après intervention est partagé vers DIASCO Auto pour contrôle et analyse.
+
+## DIASCO Auto — analyse des rapports
 
 1. Ouvrir DIASCO Auto puis toucher **Ouvrir ThinkDiag+**.
 2. Dans ThinkDiag+, lancer le diagnostic du véhicule.
@@ -19,26 +31,59 @@ Le fonctionnement est le suivant :
 5. L'analyse commence automatiquement, les codes défaut sont repérés localement, puis le backend DIASCO explique le rapport.
 6. Un résumé est lu à voix haute et le résultat est enregistré dans l'historique local.
 
-Cette architecture est volontairement en lecture seule. Elle évite qu'une erreur logicielle puisse effacer des codes, programmer un calculateur, lancer un test actif ou commander un organe du véhicule.
-
-## Formats pris en charge
+Formats pris en charge :
 
 - texte partagé par ThinkDiag+ ;
 - lien HTTPS de rapport provenant d'un domaine officiel ThinkCar autorisé ;
 - fichier texte ou HTML importé ;
 - rapport PDF partagé ou importé.
 
-Pour un PDF, les premières pages sont rendues localement par Android puis lues par le moteur visuel déjà présent dans DIASCO. Le texte obtenu est ensuite envoyé au moteur d'analyse automobile.
+## DIASCO Atelier — fonctions demandées
+
+### Effacement des défauts
+
+Le workflow exige :
+
+- véhicule immobilisé ;
+- rapport et codes sauvegardés avant effacement ;
+- moteur coupé ;
+- confirmation écrite `EFFACER`.
+
+L'application rappelle que l'effacement ne répare pas la panne et peut remettre à zéro les données figées et certains moniteurs OBD. Un nouveau scan est demandé immédiatement après l'opération.
+
+### Codage et adaptation calculateur
+
+Le workflow exige :
+
+- véhicule immobilisé et moteur coupé ;
+- rapport avant intervention sauvegardé ;
+- maintien de tension automobile stable ;
+- VIN et calculateur cible vérifiés ;
+- confirmation écrite `CODAGE`.
+
+Cette fonction prépare le codage, l'adaptation, l'initialisation ou l'appairage proposés par ThinkDiag+ selon la couverture du véhicule. Elle ne prétend pas garantir une programmation firmware complète de tous les calculateurs.
+
+### Tests d'actionneurs
+
+Les tests sont classés par risque :
+
+- carrosserie : feux, klaxon, serrures, vitres, rétroviseurs, essuie-glaces ;
+- moteur : ventilateur, papillon, purge, pompe, injecteurs ;
+- châssis : freinage, direction, transmission, suspension ;
+- SRS : airbags et prétensionneurs.
+
+Les tests de carrosserie demandent `TEST`. Les groupes moteur et châssis exigent une confirmation renforcée `PROFESSIONNEL`, un véhicule immobilisé et une zone totalement dégagée. Les commandes d'airbag ou de prétensionneur sont bloquées dans DIASCO et doivent suivre la procédure constructeur avec un technicien qualifié.
 
 ## Sécurité et confidentialité
 
 - aucune clé API n'est ajoutée à l'APK ;
+- aucun firmware, commande UDS brute ou mécanisme de contournement n'est embarqué ;
 - les domaines de rapports distants sont limités aux domaines officiels ThinkCar configurés dans le code ;
 - les téléchargements ont une limite de taille et un nombre de redirections limité ;
 - le rapport est traité comme une donnée non fiable : toute instruction contenue dans le rapport est ignorée par le prompt d'analyse ;
 - un rapport peut contenir le VIN, le kilométrage et les défauts du véhicule ; les extraits nécessaires sont envoyés au backend DIASCO lorsque l'analyse en ligne est utilisée ;
-- l'historique automobile est conservé uniquement dans les préférences locales de l'appareil ;
-- aucune fonction d'effacement de DTC, de codage ECU ou de commande d'actionneur n'est implémentée.
+- les historiques de diagnostic et d'intervention sont conservés uniquement dans les préférences locales de l'appareil ;
+- l'exécution finale des opérations modifiant le véhicule reste dans ThinkDiag+, avec ses avertissements et sa couverture constructeur.
 
 ## Profil véhicule par défaut
 
@@ -53,7 +98,7 @@ Ces champs restent modifiables et sont enregistrés localement.
 
 ## Limite actuelle
 
-L'analyse automatique débute dès que le rapport est partagé vers DIASCO Auto. En revanche, la lecture continue des valeurs en direct depuis le boîtier ThinkDiag ne peut être ajoutée proprement que si ThinkCar fournit un SDK Android ou un accès partenaire documenté. Jusqu'à cette étape, l'application officielle reste responsable de la liaison Bluetooth et du scan.
+La lecture continue et les commandes directes depuis DIASCO nécessitent un SDK officiel ThinkCar ou un accès partenaire documenté. Sans cet accès, l'application officielle reste responsable de la liaison Bluetooth, de l'authentification, des fichiers constructeurs et de l'envoi réel des commandes.
 
 ## Test rapide
 
@@ -64,9 +109,9 @@ cd android
 
 L'APK debug porte un suffixe d'application distinct. Il peut donc être installé à côté de la version DIASCO déjà signée, sans désinstaller l'application actuelle ni effacer ses données.
 
-Après installation sur l'autoradio Android 13, deux entrées de test apparaissent dans ce nouvel APK :
+Après installation sur l'autoradio Android 13, vérifier :
 
-- DIASCO Test ;
-- DIASCO Auto.
-
-Vérifier que les fonctions existantes de DIASCO sont inchangées, puis partager un rapport ThinkDiag+ vers DIASCO Auto.
+- DIASCO Test démarre et conserve les fonctions actuelles ;
+- DIASCO Auto reçoit et analyse un rapport ThinkDiag+ ;
+- DIASCO Atelier bloque une préparation incomplète et ouvre ThinkDiag+ après validation ;
+- un nouveau rapport peut être partagé après l'intervention.
