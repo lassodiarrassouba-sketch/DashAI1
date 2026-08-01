@@ -52,6 +52,8 @@ public final class WakeWordService extends Service {
     private static final int MODE_WAKE = 1;
     private static final int MODE_QUESTION = 2;
     private static final long RESTART_DELAY_MS = 1_600L;
+    private static final long WAKE_SESSION_TIMEOUT_MS = 14_000L;
+    private static final long QUESTION_SESSION_TIMEOUT_MS = 24_000L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -66,6 +68,7 @@ public final class WakeWordService extends Service {
     private boolean processing;
     private boolean stopping;
     private int recognitionMode = MODE_WAKE;
+    private int recognitionSessionId;
     private int questionVersion;
     private int utteranceCounter;
     private String partialQuestion;
@@ -183,25 +186,26 @@ public final class WakeWordService extends Service {
         partialQuestion = null;
         if (mode == MODE_QUESTION) questionVersion++;
 
+        final int sessionId = recognitionSessionId;
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                    && SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-                recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this);
-            } else {
-                recognizer = SpeechRecognizer.createSpeechRecognizer(this);
-            }
-        } catch (RuntimeException exception) {
             recognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        } catch (RuntimeException exception) {
+            recognizer = null;
+            updateState("Service vocal Android indisponible. Nouvelle tentative…");
+            startListeningSoon(MODE_WAKE, 3_000L);
+            return;
         }
 
         recognizer.setRecognitionListener(new RecognitionListener() {
             @Override
             public void onReadyForSpeech(Bundle params) {
+                if (!isCurrentRecognitionSession(sessionId)) return;
                 updateState(mode == MODE_WAKE ? "En attente de « Dis Diasco »" : "Je vous écoute…");
             }
 
             @Override
             public void onBeginningOfSpeech() {
+                if (!isCurrentRecognitionSession(sessionId)) return;
                 sendEvent(EVENT_STATUS, mode == MODE_WAKE ? "Voix détectée…" : "Question en cours…");
             }
 
@@ -210,34 +214,54 @@ public final class WakeWordService extends Service {
 
             @Override
             public void onEndOfSpeech() {
+                if (!isCurrentRecognitionSession(sessionId)) return;
                 sendEvent(EVENT_STATUS, "Traitement de la voix…");
             }
 
             @Override
             public void onError(int error) {
+                if (!isCurrentRecognitionSession(sessionId)) return;
                 recognitionActive = false;
                 if (recognitionHandled || stopping) return;
+                recognitionHandled = true;
                 if (mode == MODE_QUESTION && partialQuestion != null && partialQuestion.length() >= 2) {
                     submitQuestion(partialQuestion);
                     return;
                 }
+                destroyRecognizer();
+                if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                    updateState("Réveil vocal indisponible : permission micro manquante.");
+                    stopSelf();
+                    return;
+                }
                 if (mode == MODE_QUESTION) {
                     updateState("Aucune question entendue. Retour au réveil vocal.");
+                } else if (error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED
+                        || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE) {
+                    updateState("Reconnaissance française indisponible. Vérifiez le service vocal du téléphone.");
+                } else if (error == SpeechRecognizer.ERROR_NETWORK
+                        || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT
+                        || error == SpeechRecognizer.ERROR_SERVER) {
+                    updateState("Connexion au service vocal interrompue. Nouvelle tentative…");
                 }
-                startListeningSoon(MODE_WAKE, RESTART_DELAY_MS);
+                long delay = error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ? 3_000L : RESTART_DELAY_MS;
+                startListeningSoon(MODE_WAKE, delay);
             }
 
             @Override
             public void onResults(Bundle results) {
+                if (!isCurrentRecognitionSession(sessionId)) return;
                 recognitionActive = false;
                 if (recognitionHandled || stopping) return;
+                recognitionHandled = true;
                 ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 handleMatches(mode, matches);
             }
 
             @Override
             public void onPartialResults(Bundle partialResults) {
-                if (recognitionHandled || stopping || partialResults == null) return;
+                if (!isCurrentRecognitionSession(sessionId)
+                        || recognitionHandled || stopping || partialResults == null) return;
                 ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 if (matches == null || matches.isEmpty()) return;
                 if (mode == MODE_WAKE && findWakeMatch(matches) != null) {
@@ -252,7 +276,8 @@ public final class WakeWordService extends Service {
                         int version = ++questionVersion;
                         sendEvent(EVENT_STATUS, "Question entendue : « " + shorten(heard) + " »");
                         mainHandler.postDelayed(() -> {
-                            if (!recognitionHandled && recognitionMode == MODE_QUESTION
+                            if (isCurrentRecognitionSession(sessionId)
+                                    && !recognitionHandled && recognitionMode == MODE_QUESTION
                                     && version == questionVersion && partialQuestion != null) {
                                 submitQuestion(partialQuestion);
                             }
@@ -268,7 +293,6 @@ public final class WakeWordService extends Service {
         recognitionIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         recognitionIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fr-FR");
         recognitionIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-        recognitionIntent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         recognitionIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 4);
         if (mode == MODE_QUESTION) {
             recognitionIntent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Posez votre question à DIASCO");
@@ -277,13 +301,15 @@ public final class WakeWordService extends Service {
             recognitionIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2_200);
         } else {
             recognitionIntent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Dites : Dis Diasco");
-            recognitionIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 5_000);
-            recognitionIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1_400);
+            recognitionIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1_500);
+            recognitionIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 900);
+            recognitionIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 650);
         }
 
         recognitionActive = true;
         try {
             recognizer.startListening(recognitionIntent);
+            scheduleRecognitionWatchdog(mode, sessionId);
         } catch (RuntimeException exception) {
             recognitionActive = false;
             destroyRecognizer();
@@ -297,6 +323,10 @@ public final class WakeWordService extends Service {
                 recognitionHandled = true;
                 onWakePhraseDetected();
             } else {
+                String heard = firstNonEmpty(matches);
+                if (heard != null) {
+                    updateState("Entendu « " + shorten(heard) + " ». Dites « Dis Diasco ».");
+                }
                 startListeningSoon(MODE_WAKE, RESTART_DELAY_MS);
             }
             return;
@@ -413,16 +443,40 @@ public final class WakeWordService extends Service {
         if (callback != null) mainHandler.post(callback);
     }
 
+    private void scheduleRecognitionWatchdog(int mode, int sessionId) {
+        long timeout = mode == MODE_WAKE ? WAKE_SESSION_TIMEOUT_MS : QUESTION_SESSION_TIMEOUT_MS;
+        mainHandler.postDelayed(() -> {
+            if (!isCurrentRecognitionSession(sessionId)
+                    || !recognitionActive || recognitionHandled || processing) return;
+            if (mode == MODE_QUESTION && partialQuestion != null && partialQuestion.length() >= 2) {
+                submitQuestion(partialQuestion);
+                return;
+            }
+            recognitionHandled = true;
+            destroyRecognizer();
+            if (mode == MODE_QUESTION) {
+                updateState("Aucune question entendue. Retour au réveil vocal.");
+            }
+            startListeningSoon(MODE_WAKE, 500L);
+        }, timeout);
+    }
+
+    private boolean isCurrentRecognitionSession(int sessionId) {
+        return !stopping && recognizer != null && sessionId == recognitionSessionId;
+    }
+
     private void destroyRecognizer() {
+        recognitionSessionId++;
         recognitionActive = false;
-        if (recognizer != null) {
+        SpeechRecognizer currentRecognizer = recognizer;
+        recognizer = null;
+        if (currentRecognizer != null) {
             try {
-                recognizer.cancel();
-                recognizer.destroy();
+                currentRecognizer.cancel();
+                currentRecognizer.destroy();
             } catch (RuntimeException ignored) {
                 // Certains moteurs vocaux sont déjà détruits après leur callback final.
             }
-            recognizer = null;
         }
     }
 
