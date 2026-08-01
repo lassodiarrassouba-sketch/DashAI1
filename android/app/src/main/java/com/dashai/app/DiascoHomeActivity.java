@@ -20,11 +20,11 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 
 /**
- * Unique launcher for DIASCO.
+ * Unique launcher for DIASCO Auto.
  *
  * The existing assistant, ThinkDiag report analysis and workshop workflows
- * remain isolated activities, but they are now opened from one application
- * home screen instead of appearing as three launcher icons.
+ * remain isolated activities, but they are opened from one application home
+ * screen instead of appearing as separate launcher icons.
  */
 public final class DiascoHomeActivity extends AppCompatActivity {
     @Override
@@ -46,7 +46,7 @@ public final class DiascoHomeActivity extends AppCompatActivity {
         scrollView.addView(root, new ScrollView.LayoutParams(-1, -2));
 
         TextView title = new TextView(this);
-        title.setText("DIASCO");
+        title.setText("DIASCO Auto");
         title.setTextSize(31);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(Color.rgb(23, 33, 38));
@@ -62,7 +62,7 @@ public final class DiascoHomeActivity extends AppCompatActivity {
         TextView explanation = new TextView(this);
         explanation.setText(
                 "Choisissez l’espace à ouvrir. La conversation, la caméra, le diagnostic ThinkDiag "
-                        + "et les fonctions d’atelier font partie de la même application DIASCO."
+                        + "et les fonctions d’atelier font partie de la même application DIASCO Auto."
         );
         explanation.setTextSize(15);
         explanation.setTextColor(Color.rgb(69, 82, 78));
@@ -99,8 +99,8 @@ public final class DiascoHomeActivity extends AppCompatActivity {
 
         TextView note = new TextView(this);
         note.setText(
-                "Une seule icône DIASCO apparaît dans le lanceur. Les écrans Auto et Atelier restent "
-                        + "internes à l’application, ce qui protège les fonctions actuelles et facilite les tests."
+                "Une seule icône DIASCO Auto apparaît dans le lanceur. Les espaces Assistant, Diagnostic "
+                        + "et Atelier restent regroupés à l’intérieur de la même application."
         );
         note.setTextSize(13);
         note.setTextColor(Color.rgb(92, 107, 102));
