@@ -1,4 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
+    <!--
+        Keep normal Android system CAs and add the official Google Trust
+        Services Root R4. Some aftermarket head units advertise a recent
+        Android version while shipping an old CA store that rejects the WE1
+        chain used by the HTTPS backend.
+
+        Hostname verification and TLS remain enabled. This does not trust all
+        certificates and does not disable HTTPS validation.
+    -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/gts_root_r4" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>
