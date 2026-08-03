@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <!--
-        APK debug uniquement.
-        Permet de tester un backend local en HTTP, par exemple :
-        http://10.0.2.2:8000/api/ask depuis l'émulateur
-        http://192.168.x.x:8000/api/ask ou http://172.20.x.x:8000/api/ask depuis un vrai téléphone
-
-        Pour une version publiée, utilisez HTTPS et gardez la configuration stricte de src/main.
+        Debug builds may contact a local HTTP backend during development.
+        HTTPS connections still validate hostnames and certificates. The
+        official GTS Root R4 is bundled for aftermarket Android head units
+        whose system CA store rejects the WE1 certificate chain.
     -->
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/gts_root_r4" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>

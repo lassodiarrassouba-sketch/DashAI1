@@ -70,7 +70,7 @@ $keystoreProperties = Join-Path $projectRoot "android\keystore.properties"
 $webConfig = Join-Path $projectRoot "web\config.js"
 $androidDir = Join-Path $projectRoot "android"
 $releaseApk = Join-Path $androidDir "app\build\outputs\apk\release\app-release.apk"
-$downloadApk = Join-Path $projectRoot "download-site\diasco-2.0.0.apk"
+$downloadApk = Join-Path $projectRoot "download-site\diasco-2.4.4.apk"
 $downloadZip = Join-Path $projectRoot "diasco-android-download-netlify.zip"
 
 Set-PropertyValue -Path $keystoreProperties -Key "DASHAI_PROD_API_ENDPOINT" -Value $endpoint

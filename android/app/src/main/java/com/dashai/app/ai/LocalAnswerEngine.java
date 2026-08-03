@@ -35,7 +35,7 @@ public final class LocalAnswerEngine {
         }
 
         if (containsAny(clean, "aide", "que peux tu faire", "commandes")) {
-            return "Je peux donner l’heure, la date, le niveau de batterie, quelques infos sur le téléphone et faire des calculs simples. Pour les questions générales, active le mode en ligne et configure l’URL du backend IA.";
+            return "Je peux donner l’heure, la date, le niveau de batterie, quelques infos sur le téléphone et faire des calculs simples. Pour les questions générales, la connexion au service IA est automatique.";
         }
 
         if (containsAny(clean, "heure", "quelle heure")) {
@@ -67,7 +67,7 @@ public final class LocalAnswerEngine {
     }
 
     public String offlineFallback() {
-        return "Je n’ai pas de réponse locale fiable pour cette question. Active le mode en ligne et configure le backend IA pour les questions générales.";
+        return "Je n’ai pas de réponse locale fiable pour cette question. Vérifiez votre connexion Internet puis réessayez.";
     }
 
     private boolean containsAny(String text, String... needles) {

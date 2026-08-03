@@ -1,9 +1,6 @@
 const config = window.DASHAI_CONFIG || {};
 const state = {
   history: [],
-  listening: false,
-  waitingForQuestion: false,
-  recognizer: null,
   installPrompt: null
 };
 
@@ -17,12 +14,9 @@ const els = {
   modeText: document.querySelector("#modeText"),
   composer: document.querySelector("#composer"),
   questionInput: document.querySelector("#questionInput"),
-  wakeButton: document.querySelector("#wakeButton"),
   cameraButton: document.querySelector("#cameraButton"),
   photoInput: document.querySelector("#photoInput")
 };
-
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 init();
 
@@ -35,7 +29,6 @@ function init() {
   appendAssistant("Bonjour, je suis DIASCO. Je peux discuter avec vous, analyser une photo, ecrire du code, creer une image ou construire un site web.");
   bindEvents();
   registerServiceWorker();
-  updateSpeechSupport();
 }
 
 function bindEvents() {
@@ -48,7 +41,6 @@ function bindEvents() {
     els.questionInput.value = "";
     ask(question);
   });
-  els.wakeButton.addEventListener("click", toggleWakeListening);
   els.cameraButton.addEventListener("click", () => els.photoInput.click());
   els.photoInput.addEventListener("change", describeSelectedPhoto);
   els.installButton.addEventListener("click", installPwa);
@@ -72,14 +64,6 @@ async function installPwa() {
   await state.installPrompt.userChoice;
   state.installPrompt = null;
   els.installButton.style.display = "none";
-}
-
-function updateSpeechSupport() {
-  if (!SpeechRecognition) {
-    els.wakeButton.disabled = true;
-    els.wakeButton.title = "Reconnaissance vocale non disponible dans ce navigateur";
-    els.modeText.textContent = "Texte + camera";
-  }
 }
 
 function saveSettings() {
@@ -252,89 +236,6 @@ async function postJson(url, payload) {
     throw new Error(message);
   }
   return body;
-}
-
-function toggleWakeListening() {
-  if (!SpeechRecognition) return;
-  if (state.listening) {
-    stopRecognition();
-    return;
-  }
-  startRecognition(false);
-}
-
-function startRecognition(questionMode) {
-  stopRecognition();
-  const recognizer = new SpeechRecognition();
-  recognizer.lang = "fr-FR";
-  recognizer.interimResults = false;
-  recognizer.continuous = false;
-  state.recognizer = recognizer;
-  state.listening = true;
-  state.waitingForQuestion = questionMode;
-  els.wakeButton.classList.add("active");
-  setStatus(questionMode ? "Oui, je vous ecoute..." : "Reveil vocal : dites dis Diasco.");
-
-  recognizer.onresult = (event) => {
-    const text = Array.from(event.results)
-      .map((result) => result[0]?.transcript || "")
-      .join(" ")
-      .trim();
-    handleSpeechText(text);
-  };
-  recognizer.onerror = () => {
-    stopRecognition();
-    setStatus("Micro : aucune phrase detectee.");
-  };
-  recognizer.onend = () => {
-    state.listening = false;
-    els.wakeButton.classList.remove("active");
-    if (!state.waitingForQuestion) setStatus("Pret.");
-  };
-  recognizer.start();
-}
-
-function handleSpeechText(text) {
-  if (!text) {
-    setStatus("Micro : aucune phrase detectee.");
-    return;
-  }
-
-  if (state.waitingForQuestion) {
-    state.waitingForQuestion = false;
-    stopRecognition();
-    ask(text);
-    return;
-  }
-
-  if (containsWakePhrase(text)) {
-    state.waitingForQuestion = true;
-    appendAssistant("Oui, je vous ecoute.");
-    speak("Oui, je vous ecoute.");
-    window.setTimeout(() => startRecognition(true), 950);
-    return;
-  }
-
-  setStatus(`Entendu : ${text}`);
-}
-
-function stopRecognition() {
-  if (state.recognizer) {
-    try {
-      state.recognizer.abort();
-    } catch (_) {
-      // Certains navigateurs jettent une erreur si l'ecoute est deja terminee.
-    }
-  }
-  state.recognizer = null;
-  state.listening = false;
-  state.waitingForQuestion = false;
-  els.wakeButton.classList.remove("active");
-}
-
-function containsWakePhrase(text) {
-  const clean = normalizeText(text).replace(/\s+/g, "");
-  return clean.includes("diasco") || clean.includes("diasko") || clean.includes("djasco");
 }
 
 function isImageRequest(text) {

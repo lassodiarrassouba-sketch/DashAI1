@@ -100,14 +100,14 @@ DashAI peut traiter :
 
 - Questions écrites ou dictées : envoyées au backend IA pour générer une réponse.
 - Photos choisies par l'utilisateur : envoyées au backend IA pour description.
-- Empreinte vocale locale : stockée sur l'appareil, non envoyée au backend.
+- Dictée vocale manuelle : l’écoute commence uniquement après un appui sur le bouton micro.
 - URL backend : stockée localement dans les préférences Android.
 
 Déclaration probable Data safety :
 
 - User-generated content / app messages : collecte pour fonctionnalité de l'app.
 - Photos : collecte seulement quand l'utilisateur demande une analyse caméra.
-- Voice or sound recordings : l'empreinte vocale est traitée localement ; si une version future envoie de l'audio brut au serveur, il faudra le déclarer.
+- Voice or sound recordings : l’application ne conserve pas d’empreinte vocale et n’envoie pas d’audio brut au serveur ; si cela change, il faudra le déclarer.
 - Encryption in transit : oui uniquement si le backend production est HTTPS.
 - Deletion mechanism : prévoir une adresse de contact et/ou un bouton de suppression si des journaux serveur sont conservés.
 
